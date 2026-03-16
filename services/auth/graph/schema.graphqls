@@ -1,0 +1,148 @@
+type User {
+  id: ID!
+  did: String!
+  username: String!
+  displayName: String
+  email: String
+  trustLevel: Int!
+  # apEnabled controls whether this user's profile is discoverable via ActivityPub.
+  apEnabled: Boolean!
+  createdAt: String!
+}
+
+type FollowStats {
+  followerCount: Int!
+  followingCount: Int!
+  isFollowing: Boolean!
+}
+
+type AuthPayload {
+  accessToken: String!
+  refreshToken: String!
+  user: User!
+}
+
+type PasskeyLoginOptions {
+  challenge: String!
+  challengeToken: String!
+  rpId: String!
+  timeoutMs: Int!
+  allowCredentialIds: [String!]!
+}
+
+input PasskeyAssertionInput {
+  credentialID: String!
+  challengeToken: String!
+  clientDataJSON: String!
+  authenticatorData: String!
+  signature: String!
+  userHandle: String
+  username: String
+}
+
+input RegisterInput {
+  username: String!
+  email: String!
+  password: String!
+}
+
+input LoginInput {
+  email: String!
+  password: String!
+}
+
+type UserVc {
+  id: ID!
+  vcType: String!
+  issuer: String!
+  # JSON string of extracted attributes, e.g. '{"country":"TW"}'
+  attributes: String!
+  verifiedAt: String!
+  expiresAt: String
+  isValid: Boolean!
+}
+
+input UpsertUserVcInput {
+  vcType:     String!
+  issuer:     String!
+  # JSON string of attributes extracted from the credential
+  attributes: String!
+  # ISO-8601 expiry; omit for non-expiring credentials
+  expiresAt:  String
+}
+
+# ReputationStamp is one verified social-proof entry contributing to L2 trust.
+type ReputationStamp {
+  provider:       String!   # "phone" | "instagram" | "facebook" | "twitter" | "linkedin"
+  score:          Int!      # Points contributed toward L2 threshold
+  maxScore:       Int!      # Maximum points this provider can contribute
+  verifiedAt:     String!
+  expiresAt:      String    # null = never expires (phone)
+  isValid:        Boolean!  # false if expired
+}
+
+type ReputationStatus {
+  stamps:         [ReputationStamp!]!
+  totalScore:     Int!
+  threshold:      Int!      # Score needed for L2 (currently 10)
+  isL2:           Boolean!
+}
+
+type Query {
+  me: User
+  didDocument(did: String!): String
+  followStats(userID: ID!): FollowStats!
+  # Returns the authenticated viewer's verifiable credentials (valid + revoked).
+  myVcs: [UserVc!]!
+  # Returns all enabled VC types from the registry.
+  availableVcTypes: [VcTypeInfo!]!
+  # Returns the viewer's L2 reputation status and stamp scores.
+  myReputation: ReputationStatus!
+}
+
+# VcTypeInfo describes a registered VC type that boards can require.
+type VcTypeInfo {
+  vcType: String!
+  issuer: String!
+  label: String!
+  description: String
+  # createdBy is null for platform built-ins.
+  createdByUsername: String
+}
+
+input RegisterVcTypeInput {
+  # Snake_case identifier, e.g. "board_member".
+  vcType: String!
+  # Human-readable name, e.g. "Board Member".
+  label: String!
+  description: String
+}
+
+type Mutation {
+  register(input: RegisterInput!): AuthPayload!
+  login(input: LoginInput!): AuthPayload!
+  loginWithGoogle(idToken: String!): AuthPayload!
+  loginWithFacebook(accessToken: String!): AuthPayload!
+  beginPasskeyLogin(username: String): PasskeyLoginOptions!
+  finishPasskeyLogin(input: PasskeyAssertionInput!): AuthPayload!
+  registerPasskey(credentialID: String!, credentialPublicKey: String!, signCount: Int!): AuthPayload!
+  refreshToken(token: String!): AuthPayload!
+  revokeToken: Boolean!
+  followUser(userID: ID!): Boolean!
+  unfollowUser(userID: ID!): Boolean!
+  # VC management (Phase 1: custodial; Phase 2: replace with ZKP proof submission)
+  upsertUserVc(input: UpsertUserVcInput!): UserVc!
+  revokeUserVc(vcId: ID!): Boolean!
+  # VC type registry: any authenticated user can register custom VC types.
+  # The issuer is automatically set to the caller's username.
+  registerVcType(input: RegisterVcTypeInput!): VcTypeInfo!
+  disableVcType(vcType: String!, issuer: String!): Boolean!
+  # Phone-based L2 reputation verification.
+  # requestPhoneOTP sends a 6-digit code to the given phone number.
+  requestPhoneOTP(phone: String!): Boolean!
+  # verifyPhoneOTP checks the code and, on success, records the phone stamp
+  # and re-issues tokens with an updated trust level.
+  verifyPhoneOTP(phone: String!, code: String!): AuthPayload!
+  # setActivityPubEnabled opts the authenticated user in/out of AP federation.
+  setActivityPubEnabled(enabled: Boolean!): Boolean!
+}

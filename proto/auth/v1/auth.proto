@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package auth.v1;
+
+option go_package = "github.com/aleth/gateway/proto/auth/v1;authv1";
+
+// AuthService provides internal token validation for the API Gateway.
+service AuthService {
+  // ValidateToken verifies a JWT and returns the user's identity.
+  rpc ValidateToken(ValidateTokenRequest) returns (ValidateTokenResponse);
+}
+
+message ValidateTokenRequest {
+  string token = 1;
+}
+
+message ValidateTokenResponse {
+  string user_id = 1;
+  string username = 2;
+  int32  trust_level = 3;
+  bool   is_suspended = 4;
+}

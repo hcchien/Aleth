@@ -1,0 +1,178 @@
+type SignatureInfo {
+  isSigned: Boolean!
+  isVerified: Boolean!
+  contentHash: String
+  signature: String
+  algorithm: String
+  explanation: String!
+}
+
+type ReactionCount {
+  emotion: String!
+  count: Int!
+}
+
+type ArticleComment {
+  id: ID!
+  articleId: ID!
+  authorId: ID!
+  parentId: ID
+  content: String!
+  createdAt: String!
+}
+
+type NoteConnection {
+  items: [Post!]!
+  nextCursor: String
+  hasMore: Boolean!
+}
+
+type Post {
+  id: ID!
+  authorId: ID!
+  parentId: ID
+  rootId: ID
+  kind: String!
+  content: String!
+  noteTitle: String
+  noteCover: String
+  noteSummary: String
+  resharedFromId: ID
+  replyCount: Int!
+  likeCount: Int!
+  isLiked: Boolean!
+  viewerEmotion: String
+  reactionCounts: [ReactionCount!]!
+  createdAt: String!
+  deletedAt: String
+  signatureInfo: SignatureInfo!
+}
+
+type Article {
+  id: ID!
+  boardId: ID!
+  authorId: ID!
+  title: String!
+  slug: String!
+  contentMd: String
+  status: String!
+  accessPolicy: String!
+  publishedAt: String
+  createdAt: String!
+  updatedAt: String!
+  signatureInfo: SignatureInfo!
+}
+
+type VcRequirement {
+  vcType: String!
+  issuer: String!
+}
+
+type Board {
+  id: ID!
+  ownerId: ID!
+  name: String!
+  description: String
+  defaultAccess: String!
+  minTrustLevel: Int!
+  commentPolicy: String!
+  minCommentTrust: Int!
+  requireVcs: [VcRequirement!]!
+  requireCommentVcs: [VcRequirement!]!
+  subscriberCount: Int!
+  isSubscribed: Boolean!
+  createdAt: String!
+}
+
+type PostConnection {
+  items: [Post!]!
+  nextCursor: String
+  hasMore: Boolean!
+}
+
+type ArticleConnection {
+  items: [Article!]!
+  nextCursor: String
+  hasMore: Boolean!
+}
+
+input CreatePostInput {
+  content: String!
+}
+
+input CreateArticleInput {
+  title: String!
+  contentMd: String
+  accessPolicy: String!
+}
+
+input UpdateArticleInput {
+  title: String
+  contentMd: String
+  accessPolicy: String
+  status: String
+}
+
+input BoardSettingsInput {
+  name: String
+  description: String
+  defaultAccess: String
+}
+
+input VcRequirementInput {
+  vcType: String!
+  issuer: String!
+}
+
+input BoardVcPolicyInput {
+  minTrustLevel: Int!
+  requireVcs: [VcRequirementInput!]!
+  minCommentTrust: Int!
+  requireCommentVcs: [VcRequirementInput!]!
+}
+
+input CreateNoteInput {
+  content: String!
+  noteTitle: String!
+  noteCover: String
+  noteSummary: String
+}
+
+input ResharePostInput {
+  content: String
+}
+
+type Query {
+  post(id: ID!): Post
+  posts(after: String, limit: Int): PostConnection!
+  notes(after: String, limit: Int): NoteConnection!
+  postReplies(postId: ID!, limit: Int): [Post!]!
+  article(id: ID!): Article
+  # ownerID is the board owner's user UUID (resolved by the gateway from username)
+  board(ownerID: ID!): Board
+  boardByID(id: ID!): Board
+  boardArticles(ownerID: ID!, after: String, limit: Int): ArticleConnection!
+  articleComments(articleId: ID!, limit: Int): [ArticleComment!]!
+  commentReplies(commentId: ID!, limit: Int): [ArticleComment!]!
+}
+
+type Mutation {
+  createPost(input: CreatePostInput!): Post!
+  createNote(input: CreateNoteInput!): Post!
+  resharePost(postId: ID!, input: ResharePostInput!): Post!
+  replyPost(postId: ID!, input: CreatePostInput!): Post!
+  deletePost(id: ID!): Boolean!
+  likePost(postId: ID!): Boolean!
+  unlikePost(postId: ID!): Boolean!
+  reactPost(postId: ID!, emotion: String!): Boolean!
+  unreactPost(postId: ID!): Boolean!
+  createArticleComment(articleId: ID!, content: String!, parentCommentId: ID): ArticleComment!
+  createArticle(input: CreateArticleInput!): Article!
+  updateArticle(id: ID!, input: UpdateArticleInput!): Article!
+  publishArticle(id: ID!): Article!
+  deleteArticle(id: ID!): Boolean!
+  updateBoardSettings(input: BoardSettingsInput!): Board!
+  updateBoardVcPolicy(input: BoardVcPolicyInput!): Board!
+  subscribeBoard(ownerID: ID!): Boolean!
+  unsubscribeBoard(ownerID: ID!): Boolean!
+}

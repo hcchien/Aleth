@@ -1,0 +1,83 @@
+steps:
+  # --- Test ---
+  - id: go-test
+    name: golang:1.23
+    entrypoint: go
+    args: [test, ./...]
+    dir: services/auth
+    env: [CGO_ENABLED=0]
+
+  - id: go-test-content
+    name: golang:1.23
+    entrypoint: go
+    args: [test, ./...]
+    dir: services/content
+    env: [CGO_ENABLED=0]
+
+  - id: next-lint-web
+    name: node:22
+    entrypoint: pnpm
+    args: [--filter, web, lint]
+
+  - id: next-lint-admin
+    name: node:22
+    entrypoint: pnpm
+    args: [--filter, admin, lint]
+
+  # --- DB Migration (before deploy) ---
+  - id: db-migrate-auth
+    name: gcr.io/$PROJECT_ID/goose:latest
+    args: [up]
+    dir: migrations/auth
+    secretEnv: [GOOSE_DBSTRING]
+    waitFor: [go-test]
+
+  - id: db-migrate-content
+    name: gcr.io/$PROJECT_ID/goose:latest
+    args: [up]
+    dir: migrations/content
+    secretEnv: [GOOSE_DBSTRING]
+    waitFor: [go-test-content]
+
+  # --- Build images ---
+  - id: build-auth
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f infra/docker/auth.Dockerfile
+      - -t $_REGION-docker.pkg.dev/$PROJECT_ID/aleth/auth:$SHORT_SHA
+      - .
+    waitFor: [db-migrate-auth]
+
+  # --- Push images ---
+  - id: push-auth
+    name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - $_REGION-docker.pkg.dev/$PROJECT_ID/aleth/auth:$SHORT_SHA
+    waitFor: [build-auth]
+
+  # --- Deploy to GKE ---
+  - id: deploy-auth
+    name: gcr.io/cloud-builders/kubectl
+    args:
+      - set
+      - image
+      - deployment/auth
+      - auth=$_REGION-docker.pkg.dev/$PROJECT_ID/aleth/auth:$SHORT_SHA
+    env:
+      - CLOUDSDK_COMPUTE_REGION=$_REGION
+      - CLOUDSDK_CONTAINER_CLUSTER=aleth-$_ENV
+    waitFor: [push-auth]
+
+substitutions:
+  _REGION: asia-east1
+  _ENV: staging
+
+availableSecrets:
+  secretManager:
+    - versionName: projects/$PROJECT_ID/secrets/auth-db-url/versions/latest
+      env: GOOSE_DBSTRING
+
+options:
+  logging: CLOUD_LOGGING_ONLY

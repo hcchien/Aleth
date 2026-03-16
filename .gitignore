@@ -1,0 +1,42 @@
+# Go
+bin/
+*.exe
+*.test
+*.prof
+vendor/
+
+# Next.js
+.next/
+out/
+node_modules/
+.pnp
+.pnp.js
+
+# Build artifacts
+dist/
+
+# Env files
+.env
+.env.local
+.env.*.local
+*.env
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Generated
+**/*.gen.go
+**/generated.go
+
+# Dev runtime
+.dev-pids
+
+# Claude session data
+.claude/

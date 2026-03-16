@@ -1,0 +1,60 @@
+type FeedPost {
+  id: ID!
+  authorId: ID!
+  authorUsername: String!
+  authorDisplayName: String
+  authorTrustLevel: Int!
+  isSigned: Boolean!
+  content: String!
+  kind: String!
+  noteTitle: String
+  noteSummary: String
+  resharedFromId: ID
+  commentCount: Int!
+  reactionCounts: [FeedReactionCount!]!
+  myEmotion: String
+  createdAt: String!
+}
+
+type FeedReactionCount {
+  emotion: String!
+  count: Int!
+}
+
+type FeedArticle {
+  id: ID!
+  authorId: ID!
+  authorUsername: String!
+  title: String!
+  slug: String!
+  publishedAt: String!
+}
+
+type FeedItem {
+  id: ID!
+  type: String!
+  post: FeedPost
+  article: FeedArticle
+  score: Float!
+}
+
+type FeedConnection {
+  items: [FeedItem!]!
+  nextCursor: String
+  hasMore: Boolean!
+}
+
+type FriendReactor {
+  id: ID!
+  username: String!
+  displayName: String
+  emotion: String!
+}
+
+type Query {
+  feed(after: String, limit: Int): FeedConnection!
+  exploreFeed(after: String, limit: Int): FeedConnection!
+  # Returns friends of the authenticated viewer who reacted to postId.
+  # Requires a valid Bearer token; returns [] for unauthenticated requests.
+  postFriendReactors(postId: ID!, limit: Int): [FriendReactor!]!
+}

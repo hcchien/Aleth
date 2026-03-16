@@ -16,6 +16,8 @@ export type FollowedUser = {
 export type FanPage = {
   id: string;
   icon: string;
+  /** For fan pages: use slug (links to /p/{slug}). For legacy boards: use ownerUsername (links to /@{username}). */
+  slug?: string;
   ownerUsername: string;
   name: string;
   count: number;
@@ -90,7 +92,7 @@ export async function ForumShell({
                 key={p.name}
                 className="flex items-center justify-between text-[var(--app-text-heading)]"
               >
-                <Link href={`/@${p.ownerUsername}`} className="hover:text-[var(--app-text)]">
+                <Link href={p.slug ? `/p/${p.slug}` : `/@${p.ownerUsername}`} className="hover:text-[var(--app-text)]">
                   {p.icon}　{p.name}
                 </Link>
                 <span className="text-[var(--app-text-secondary)]">{p.count}</span>

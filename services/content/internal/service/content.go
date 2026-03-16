@@ -62,6 +62,26 @@ type contentStore interface {
 	CreateArticleComment(ctx context.Context, params db.CreateArticleCommentParams) (db.ArticleComment, error)
 	ListArticleComments(ctx context.Context, articleID uuid.UUID, limit int) ([]db.ArticleComment, error)
 	ListCommentReplies(ctx context.Context, parentID uuid.UUID, limit int) ([]db.ArticleComment, error)
+
+	// Fan pages
+	CreatePage(ctx context.Context, params db.CreatePageParams) (db.FanPage, error)
+	GetPageBySlug(ctx context.Context, slug string) (db.FanPage, error)
+	GetPageByID(ctx context.Context, id uuid.UUID) (db.FanPage, error)
+	UpdatePage(ctx context.Context, params db.UpdatePageParams) (db.FanPage, error)
+	UpdatePagePolicy(ctx context.Context, params db.UpdatePagePolicyParams) (db.FanPage, error)
+	DeletePage(ctx context.Context, id uuid.UUID) error
+	AddPageMember(ctx context.Context, pageID, userID uuid.UUID, role string) error
+	RemovePageMember(ctx context.Context, pageID, userID uuid.UUID) error
+	GetPageMember(ctx context.Context, pageID, userID uuid.UUID) (*db.PageMember, error)
+	ListPageMembers(ctx context.Context, pageID uuid.UUID) ([]db.PageMember, error)
+	ListPagesByMember(ctx context.Context, userID uuid.UUID) ([]db.FanPage, error)
+	FollowPage(ctx context.Context, pageID, userID uuid.UUID) error
+	UnfollowPage(ctx context.Context, pageID, userID uuid.UUID) error
+	IsFollowingPage(ctx context.Context, pageID, userID uuid.UUID) (bool, error)
+	CountPageFollowers(ctx context.Context, pageID uuid.UUID) (int64, error)
+	ListPagePosts(ctx context.Context, params db.ListPagePostsParams) ([]db.Post, error)
+	ListPageArticles(ctx context.Context, params db.ListPageArticlesParams) ([]db.Article, error)
+	ListPublicPostsByPage(ctx context.Context, pageID uuid.UUID, limit int, before *time.Time) ([]db.Post, error)
 }
 
 func NewContentService(store contentStore) *ContentService {
@@ -217,7 +237,7 @@ func (s *ContentService) CountBoardSubscribers(ctx context.Context, boardID uuid
 // ─── Posts ────────────────────────────────────────────────────────────────────
 
 // CreatePost creates a new root-level post.
-func (s *ContentService) CreatePost(ctx context.Context, authorID uuid.UUID, content string, authorTrustLevel int) (db.Post, error) {
+func (s *ContentService) CreatePost(ctx context.Context, authorID uuid.UUID, content string, authorTrustLevel int, pageID *uuid.UUID) (db.Post, error) {
 	content = strings.TrimSpace(content)
 	if content == "" {
 		return db.Post{}, fmt.Errorf("content cannot be empty")
@@ -230,6 +250,7 @@ func (s *ContentService) CreatePost(ctx context.Context, authorID uuid.UUID, con
 		AuthorID:         authorID,
 		Content:          content,
 		AuthorTrustLevel: authorTrustLevel,
+		PageID:           pageID,
 	})
 	if err != nil {
 		return db.Post{}, err
@@ -484,7 +505,8 @@ type CreateArticleInput struct {
 
 // CreateArticle creates a draft article in the author's board.
 // The board is created automatically if it doesn't exist.
-func (s *ContentService) CreateArticle(ctx context.Context, authorID uuid.UUID, input CreateArticleInput) (db.Article, error) {
+// Pass boardID as uuid.Nil to auto-create the board; pass pageID non-nil for page articles.
+func (s *ContentService) CreateArticle(ctx context.Context, authorID uuid.UUID, boardID uuid.UUID, input CreateArticleInput, pageID *uuid.UUID) (db.Article, error) {
 	input.Title = strings.TrimSpace(input.Title)
 	if input.Title == "" {
 		return db.Article{}, fmt.Errorf("title cannot be empty")
@@ -493,20 +515,24 @@ func (s *ContentService) CreateArticle(ctx context.Context, authorID uuid.UUID, 
 		return db.Article{}, err
 	}
 
-	board, err := s.GetOrCreateBoard(ctx, authorID, "My Board")
-	if err != nil {
-		return db.Article{}, fmt.Errorf("get or create board: %w", err)
+	if boardID == uuid.Nil {
+		board, err := s.GetOrCreateBoard(ctx, authorID, "My Board")
+		if err != nil {
+			return db.Article{}, fmt.Errorf("get or create board: %w", err)
+		}
+		boardID = board.ID
 	}
 
 	slug := slugify(input.Title)
 
 	article, err := s.db.CreateArticle(ctx, db.CreateArticleParams{
-		BoardID:      board.ID,
+		BoardID:      boardID,
 		AuthorID:     authorID,
 		Title:        input.Title,
 		Slug:         slug,
 		ContentMd:    input.ContentMd,
 		AccessPolicy: input.AccessPolicy,
+		PageID:       pageID,
 	})
 	if err != nil {
 		return db.Article{}, err
@@ -700,6 +726,288 @@ func (s *ContentService) ListArticleComments(ctx context.Context, articleID uuid
 
 func (s *ContentService) GetCommentReplies(ctx context.Context, parentID uuid.UUID, limit int) ([]db.ArticleComment, error) {
 	return s.db.ListCommentReplies(ctx, parentID, limit)
+}
+
+// ─── Fan pages ────────────────────────────────────────────────────────────────
+
+// validatePageSlug ensures slug is lowercase alphanumeric with hyphens, 3-64 chars.
+func validatePageSlug(slug string) error {
+	if len(slug) < 3 || len(slug) > 64 {
+		return fmt.Errorf("slug must be 3–64 characters")
+	}
+	for _, r := range slug {
+		if !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-') {
+			return fmt.Errorf("slug must contain only lowercase letters, digits, and hyphens")
+		}
+	}
+	if slug[0] == '-' || slug[len(slug)-1] == '-' {
+		return fmt.Errorf("slug must not start or end with a hyphen")
+	}
+	return nil
+}
+
+type CreatePageInput struct {
+	Slug        string
+	Name        string
+	Description *string
+	AvatarURL   *string
+	CoverURL    *string
+	Category    string
+}
+
+func (s *ContentService) CreatePage(ctx context.Context, callerID uuid.UUID, input CreatePageInput) (db.FanPage, error) {
+	if err := validatePageSlug(input.Slug); err != nil {
+		return db.FanPage{}, err
+	}
+	if strings.TrimSpace(input.Name) == "" {
+		return db.FanPage{}, fmt.Errorf("page name is required")
+	}
+	category := input.Category
+	if category == "" {
+		category = "general"
+	}
+	page, err := s.db.CreatePage(ctx, db.CreatePageParams{
+		Slug: input.Slug, Name: strings.TrimSpace(input.Name),
+		Description: input.Description, AvatarURL: input.AvatarURL,
+		CoverURL: input.CoverURL, Category: category,
+	})
+	if err != nil {
+		if strings.Contains(err.Error(), "unique") || strings.Contains(err.Error(), "duplicate") {
+			return db.FanPage{}, fmt.Errorf("slug already taken")
+		}
+		return db.FanPage{}, fmt.Errorf("create page: %w", err)
+	}
+	if err := s.db.AddPageMember(ctx, page.ID, callerID, "admin"); err != nil {
+		return db.FanPage{}, fmt.Errorf("add page admin: %w", err)
+	}
+	return page, nil
+}
+
+type UpdatePageInput struct {
+	Name        *string
+	Description *string
+	AvatarURL   *string
+	CoverURL    *string
+	Category    *string
+	APEnabled   *bool
+}
+
+func (s *ContentService) UpdatePage(ctx context.Context, pageID, callerID uuid.UUID, input UpdatePageInput) (db.FanPage, error) {
+	if err := s.requirePageAdmin(ctx, pageID, callerID); err != nil {
+		return db.FanPage{}, err
+	}
+	return s.db.UpdatePage(ctx, db.UpdatePageParams{
+		ID: pageID, Name: input.Name, Description: input.Description,
+		AvatarURL: input.AvatarURL, CoverURL: input.CoverURL,
+		Category: input.Category, APEnabled: input.APEnabled,
+	})
+}
+
+type PagePolicyInput struct {
+	DefaultAccess     string
+	MinTrustLevel     int16
+	CommentPolicy     string
+	MinCommentTrust   int16
+	RequireVcs        []db.VcRequirement
+	RequireCommentVcs []db.VcRequirement
+}
+
+func (s *ContentService) SetPagePolicy(ctx context.Context, pageID, callerID uuid.UUID, input PagePolicyInput) (db.FanPage, error) {
+	if err := s.requirePageAdmin(ctx, pageID, callerID); err != nil {
+		return db.FanPage{}, err
+	}
+	if input.DefaultAccess != "public" && input.DefaultAccess != "members" {
+		return db.FanPage{}, fmt.Errorf("invalid defaultAccess: must be 'public' or 'members'")
+	}
+	if input.CommentPolicy != "public" && input.CommentPolicy != "members" {
+		return db.FanPage{}, fmt.Errorf("invalid commentPolicy: must be 'public' or 'members'")
+	}
+	if input.MinTrustLevel < 0 || input.MinTrustLevel > 4 {
+		return db.FanPage{}, fmt.Errorf("minTrustLevel must be 0–4")
+	}
+	if input.MinCommentTrust < 0 || input.MinCommentTrust > 4 {
+		return db.FanPage{}, fmt.Errorf("minCommentTrust must be 0–4")
+	}
+	rvcs := input.RequireVcs
+	if rvcs == nil {
+		rvcs = []db.VcRequirement{}
+	}
+	rcvcs := input.RequireCommentVcs
+	if rcvcs == nil {
+		rcvcs = []db.VcRequirement{}
+	}
+	return s.db.UpdatePagePolicy(ctx, db.UpdatePagePolicyParams{
+		ID: pageID, DefaultAccess: input.DefaultAccess, MinTrustLevel: input.MinTrustLevel,
+		CommentPolicy: input.CommentPolicy, MinCommentTrust: input.MinCommentTrust,
+		RequireVcs: rvcs, RequireCommentVcs: rcvcs,
+	})
+}
+
+func (s *ContentService) DeletePage(ctx context.Context, pageID, callerID uuid.UUID) error {
+	if err := s.requirePageAdmin(ctx, pageID, callerID); err != nil {
+		return err
+	}
+	return s.db.DeletePage(ctx, pageID)
+}
+
+func (s *ContentService) GetPageBySlug(ctx context.Context, slug string) (*db.FanPage, error) {
+	page, err := s.db.GetPageBySlug(ctx, slug)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get page: %w", err)
+	}
+	return &page, nil
+}
+
+func (s *ContentService) AddPageMember(ctx context.Context, pageID, callerID, targetUserID uuid.UUID, role string) error {
+	if err := s.requirePageAdmin(ctx, pageID, callerID); err != nil {
+		return err
+	}
+	if role != "admin" && role != "editor" {
+		return fmt.Errorf("invalid role: must be 'admin' or 'editor'")
+	}
+	return s.db.AddPageMember(ctx, pageID, targetUserID, role)
+}
+
+func (s *ContentService) RemovePageMember(ctx context.Context, pageID, callerID, targetUserID uuid.UUID) error {
+	if err := s.requirePageAdmin(ctx, pageID, callerID); err != nil {
+		return err
+	}
+	// Block removal of last admin
+	members, err := s.db.ListPageMembers(ctx, pageID)
+	if err != nil {
+		return fmt.Errorf("list page members: %w", err)
+	}
+	adminCount := 0
+	for _, m := range members {
+		if m.Role == "admin" {
+			adminCount++
+		}
+	}
+	// Find target's current role
+	for _, m := range members {
+		if m.UserID == targetUserID && m.Role == "admin" && adminCount == 1 {
+			return fmt.Errorf("cannot remove the last page admin")
+		}
+	}
+	return s.db.RemovePageMember(ctx, pageID, targetUserID)
+}
+
+func (s *ContentService) ListPageMembers(ctx context.Context, pageID uuid.UUID) ([]db.PageMember, error) {
+	return s.db.ListPageMembers(ctx, pageID)
+}
+
+func (s *ContentService) ListPagesByMember(ctx context.Context, userID uuid.UUID) ([]db.FanPage, error) {
+	return s.db.ListPagesByMember(ctx, userID)
+}
+
+func (s *ContentService) FollowPage(ctx context.Context, pageID, userID uuid.UUID) error {
+	return s.db.FollowPage(ctx, pageID, userID)
+}
+
+func (s *ContentService) UnfollowPage(ctx context.Context, pageID, userID uuid.UUID) error {
+	return s.db.UnfollowPage(ctx, pageID, userID)
+}
+
+func (s *ContentService) IsFollowingPage(ctx context.Context, pageID, userID uuid.UUID) (bool, error) {
+	return s.db.IsFollowingPage(ctx, pageID, userID)
+}
+
+func (s *ContentService) CountPageFollowers(ctx context.Context, pageID uuid.UUID) (int64, error) {
+	return s.db.CountPageFollowers(ctx, pageID)
+}
+
+func (s *ContentService) GetPageFeed(ctx context.Context, pageID uuid.UUID, after *uuid.UUID, limit int, viewerID *uuid.UUID) ([]db.Post, error) {
+	return s.db.ListPagePosts(ctx, db.ListPagePostsParams{
+		PageID: pageID, After: after, Limit: limit, ViewerID: viewerID,
+	})
+}
+
+func (s *ContentService) GetPageArticles(ctx context.Context, pageID uuid.UUID, after *uuid.UUID, limit int) ([]db.Article, error) {
+	return s.db.ListPageArticles(ctx, db.ListPageArticlesParams{
+		PageID: pageID, After: after, Limit: limit,
+	})
+}
+
+func (s *ContentService) CreatePagePost(ctx context.Context, authorID, pageID uuid.UUID, content string, authorTrustLevel int) (db.Post, error) {
+	m, err := s.db.GetPageMember(ctx, pageID, authorID)
+	if err != nil {
+		return db.Post{}, fmt.Errorf("check page member: %w", err)
+	}
+	if m == nil {
+		return db.Post{}, fmt.Errorf("not a page member")
+	}
+	return s.CreatePost(ctx, authorID, content, authorTrustLevel, &pageID)
+}
+
+func (s *ContentService) ReplyPagePost(ctx context.Context, authorID, pageID, parentID uuid.UUID, content string, authorTrustLevel int) (db.Post, error) {
+	// Check if caller is a page member — members bypass policy
+	m, err := s.db.GetPageMember(ctx, pageID, authorID)
+	if err != nil {
+		return db.Post{}, fmt.Errorf("check page member: %w", err)
+	}
+	if m == nil {
+		// Non-member: enforce comment policy
+		page, err := s.db.GetPageByID(ctx, pageID)
+		if err != nil {
+			return db.Post{}, fmt.Errorf("get page: %w", err)
+		}
+		if page.CommentPolicy == "members" {
+			isFollower, err := s.db.IsFollowingPage(ctx, pageID, authorID)
+			if err != nil {
+				return db.Post{}, fmt.Errorf("check follower: %w", err)
+			}
+			if !isFollower {
+				return db.Post{}, fmt.Errorf("only page followers can comment on this page")
+			}
+		}
+		if int16(authorTrustLevel) < page.MinCommentTrust {
+			return db.Post{}, fmt.Errorf("trust level too low to comment on this page")
+		}
+	}
+	parent, err := s.db.GetPostByID(ctx, parentID, &authorID)
+	if err != nil {
+		return db.Post{}, fmt.Errorf("get parent post: %w", err)
+	}
+	rootID := parent.RootID
+	if rootID == nil {
+		rootID = &parentID
+	}
+	return s.db.CreatePost(ctx, db.CreatePostParams{
+		AuthorID: authorID, ParentID: &parentID, RootID: rootID,
+		Content: strings.TrimSpace(content), AuthorTrustLevel: authorTrustLevel,
+		PageID: &pageID,
+	})
+}
+
+func (s *ContentService) CreatePageArticle(ctx context.Context, authorID, pageID uuid.UUID, input CreateArticleInput) (db.Article, error) {
+	m, err := s.db.GetPageMember(ctx, pageID, authorID)
+	if err != nil {
+		return db.Article{}, fmt.Errorf("check page member: %w", err)
+	}
+	if m == nil {
+		return db.Article{}, fmt.Errorf("not a page member")
+	}
+	// Page articles use author's board for board_id (board_id NOT NULL constraint)
+	board, err := s.GetOrCreateBoard(ctx, authorID, "")
+	if err != nil {
+		return db.Article{}, fmt.Errorf("get board: %w", err)
+	}
+	return s.CreateArticle(ctx, authorID, board.ID, input, &pageID)
+}
+
+// requirePageAdmin checks caller is an admin of the page.
+func (s *ContentService) requirePageAdmin(ctx context.Context, pageID, callerID uuid.UUID) error {
+	m, err := s.db.GetPageMember(ctx, pageID, callerID)
+	if err != nil {
+		return fmt.Errorf("check page admin: %w", err)
+	}
+	if m == nil || m.Role != "admin" {
+		return fmt.Errorf("not authorized: must be page admin")
+	}
+	return nil
 }
 
 // ─── helpers ──────────────────────────────────────────────────────────────────

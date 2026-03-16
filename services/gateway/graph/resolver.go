@@ -2104,9 +2104,483 @@ type ReputationStampResolver struct {
 	stamp GatewayReputationStamp
 }
 
-func (r *ReputationStampResolver) Provider() string  { return r.stamp.Provider }
-func (r *ReputationStampResolver) Score() int32      { return r.stamp.Score }
-func (r *ReputationStampResolver) MaxScore() int32   { return r.stamp.MaxScore }
+func (r *ReputationStampResolver) Provider() string   { return r.stamp.Provider }
+func (r *ReputationStampResolver) Score() int32       { return r.stamp.Score }
+func (r *ReputationStampResolver) MaxScore() int32    { return r.stamp.MaxScore }
 func (r *ReputationStampResolver) VerifiedAt() string { return r.stamp.VerifiedAt }
 func (r *ReputationStampResolver) ExpiresAt() *string { return r.stamp.ExpiresAt }
-func (r *ReputationStampResolver) IsValid() bool     { return r.stamp.IsValid }
+func (r *ReputationStampResolver) IsValid() bool      { return r.stamp.IsValid }
+
+// ─── Fan page resolvers ───────────────────────────────────────────────────────
+
+const fanPageFields = `id slug name description avatarUrl coverUrl category apEnabled defaultAccess minTrustLevel commentPolicy minCommentTrust followerCount isFollowing createdAt updatedAt`
+
+type GatewayFanPageResolver struct {
+	page client.ContentFanPage
+	r    *Resolver
+}
+
+func (fr *GatewayFanPageResolver) ID() graphql.ID        { return graphql.ID(fr.page.ID) }
+func (fr *GatewayFanPageResolver) Slug() string           { return fr.page.Slug }
+func (fr *GatewayFanPageResolver) Name() string           { return fr.page.Name }
+func (fr *GatewayFanPageResolver) Description() *string   { return fr.page.Description }
+func (fr *GatewayFanPageResolver) AvatarUrl() *string     { return fr.page.AvatarURL }
+func (fr *GatewayFanPageResolver) CoverUrl() *string      { return fr.page.CoverURL }
+func (fr *GatewayFanPageResolver) Category() string       { return fr.page.Category }
+func (fr *GatewayFanPageResolver) ApEnabled() bool        { return fr.page.APEnabled }
+func (fr *GatewayFanPageResolver) DefaultAccess() string  { return fr.page.DefaultAccess }
+func (fr *GatewayFanPageResolver) MinTrustLevel() int32   { return fr.page.MinTrustLevel }
+func (fr *GatewayFanPageResolver) CommentPolicy() string  { return fr.page.CommentPolicy }
+func (fr *GatewayFanPageResolver) MinCommentTrust() int32 { return fr.page.MinCommentTrust }
+func (fr *GatewayFanPageResolver) FollowerCount() int32   { return fr.page.FollowerCount }
+func (fr *GatewayFanPageResolver) IsFollowing() bool      { return fr.page.IsFollowing }
+func (fr *GatewayFanPageResolver) CreatedAt() string      { return fr.page.CreatedAt }
+func (fr *GatewayFanPageResolver) UpdatedAt() string      { return fr.page.UpdatedAt }
+
+type GatewayPageMemberResolver struct {
+	member client.ContentPageMember
+	r      *Resolver
+}
+
+func (mr *GatewayPageMemberResolver) PageId() graphql.ID { return graphql.ID(mr.member.PageID) }
+func (mr *GatewayPageMemberResolver) UserId() graphql.ID { return graphql.ID(mr.member.UserID) }
+func (mr *GatewayPageMemberResolver) Role() string       { return mr.member.Role }
+func (mr *GatewayPageMemberResolver) JoinedAt() string   { return mr.member.JoinedAt }
+func (mr *GatewayPageMemberResolver) User(ctx context.Context) (*UserResolver, error) {
+	users, err := mr.r.resolveUsers(ctx, []string{mr.member.UserID})
+	if err != nil {
+		return nil, err
+	}
+	u := users[mr.member.UserID]
+	if u == nil {
+		return nil, fmt.Errorf("user not found: %s", mr.member.UserID)
+	}
+	return &UserResolver{user: *u, r: mr.r}, nil
+}
+
+type GatewayPageMemberConnectionResolver struct {
+	conn client.ContentPageMemberConnection
+	r    *Resolver
+}
+
+func (c *GatewayPageMemberConnectionResolver) Items() []*GatewayPageMemberResolver {
+	out := make([]*GatewayPageMemberResolver, len(c.conn.Items))
+	for i, m := range c.conn.Items {
+		out[i] = &GatewayPageMemberResolver{member: m, r: c.r}
+	}
+	return out
+}
+
+// Fan page queries
+
+func (r *Resolver) Page(ctx context.Context, args struct{ Slug string }) (*GatewayFanPageResolver, error) {
+	data, err := r.contentGQL(ctx,
+		`query($slug: String!) { page(slug: $slug) { `+fanPageFields+` } }`,
+		map[string]any{"slug": args.Slug},
+	)
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		Page *client.ContentFanPage `json:"page"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, err
+	}
+	if resp.Page == nil {
+		return nil, nil
+	}
+	return &GatewayFanPageResolver{page: *resp.Page, r: r}, nil
+}
+
+func (r *Resolver) PageFeed(ctx context.Context, args struct {
+	Slug  string
+	After *string
+	Limit *int32
+}) (*PostConnectionResolver, error) {
+	vars := map[string]any{"slug": args.Slug}
+	if args.After != nil {
+		vars["after"] = *args.After
+	}
+	if args.Limit != nil {
+		vars["limit"] = *args.Limit
+	}
+	data, err := r.contentGQL(ctx,
+		`query($slug: String!, $after: String, $limit: Int) {
+			pageFeed(slug: $slug, after: $after, limit: $limit) {
+				items { `+postFields+` }
+				nextCursor hasMore
+			}
+		}`,
+		vars,
+	)
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		PageFeed client.ContentPostConnection `json:"pageFeed"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, err
+	}
+	authorIDs := make([]string, 0, len(resp.PageFeed.Items))
+	for _, p := range resp.PageFeed.Items {
+		authorIDs = append(authorIDs, p.AuthorID)
+	}
+	users, err := r.resolveUsers(ctx, authorIDs)
+	if err != nil {
+		return nil, err
+	}
+	return &PostConnectionResolver{conn: resp.PageFeed, users: users, r: r}, nil
+}
+
+func (r *Resolver) PageArticles(ctx context.Context, args struct {
+	Slug  string
+	After *string
+	Limit *int32
+}) (*ArticleConnectionResolver, error) {
+	vars := map[string]any{"slug": args.Slug}
+	if args.After != nil {
+		vars["after"] = *args.After
+	}
+	if args.Limit != nil {
+		vars["limit"] = *args.Limit
+	}
+	data, err := r.contentGQL(ctx,
+		`query($slug: String!, $after: String, $limit: Int) {
+			pageArticles(slug: $slug, after: $after, limit: $limit) {
+				items { `+articleFields+` }
+				nextCursor hasMore
+			}
+		}`,
+		vars,
+	)
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		PageArticles client.ContentArticleConnection `json:"pageArticles"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, err
+	}
+	authorIDs := make([]string, 0, len(resp.PageArticles.Items))
+	for _, a := range resp.PageArticles.Items {
+		authorIDs = append(authorIDs, a.AuthorID)
+	}
+	users, err := r.resolveUsers(ctx, authorIDs)
+	if err != nil {
+		return nil, err
+	}
+	return &ArticleConnectionResolver{conn: resp.PageArticles, users: users, r: r}, nil
+}
+
+func (r *Resolver) PageMembers(ctx context.Context, args struct{ PageId graphql.ID }) (*GatewayPageMemberConnectionResolver, error) {
+	data, err := r.contentGQL(ctx,
+		`query($pageId: ID!) { pageMembers(pageId: $pageId) { items { pageId userId role joinedAt } } }`,
+		map[string]any{"pageId": string(args.PageId)},
+	)
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		PageMembers client.ContentPageMemberConnection `json:"pageMembers"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, err
+	}
+	return &GatewayPageMemberConnectionResolver{conn: resp.PageMembers, r: r}, nil
+}
+
+func (r *Resolver) MyPages(ctx context.Context) ([]*GatewayFanPageResolver, error) {
+	data, err := r.contentGQL(ctx,
+		`{ myPages { `+fanPageFields+` } }`,
+		nil,
+	)
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		MyPages []client.ContentFanPage `json:"myPages"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, err
+	}
+	out := make([]*GatewayFanPageResolver, len(resp.MyPages))
+	for i, p := range resp.MyPages {
+		out[i] = &GatewayFanPageResolver{page: p, r: r}
+	}
+	return out, nil
+}
+
+// Fan page mutations
+
+type GatewayCreatePageInput struct {
+	Slug        string
+	Name        string
+	Description *string
+	AvatarUrl   *string
+	CoverUrl    *string
+	Category    *string
+}
+
+func (r *Resolver) CreatePage(ctx context.Context, args struct{ Input GatewayCreatePageInput }) (*GatewayFanPageResolver, error) {
+	input := map[string]any{
+		"slug": args.Input.Slug,
+		"name": args.Input.Name,
+	}
+	if args.Input.Description != nil {
+		input["description"] = *args.Input.Description
+	}
+	if args.Input.AvatarUrl != nil {
+		input["avatarUrl"] = *args.Input.AvatarUrl
+	}
+	if args.Input.CoverUrl != nil {
+		input["coverUrl"] = *args.Input.CoverUrl
+	}
+	if args.Input.Category != nil {
+		input["category"] = *args.Input.Category
+	}
+	data, err := r.contentGQL(ctx,
+		`mutation($input: CreatePageInput!) { createPage(input: $input) { `+fanPageFields+` } }`,
+		map[string]any{"input": input},
+	)
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		CreatePage client.ContentFanPage `json:"createPage"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, err
+	}
+	return &GatewayFanPageResolver{page: resp.CreatePage, r: r}, nil
+}
+
+type GatewayUpdatePageInput struct {
+	Name        *string
+	Description *string
+	AvatarUrl   *string
+	CoverUrl    *string
+	Category    *string
+	ApEnabled   *bool
+}
+
+func (r *Resolver) UpdatePage(ctx context.Context, args struct {
+	PageId graphql.ID
+	Input  GatewayUpdatePageInput
+}) (*GatewayFanPageResolver, error) {
+	input := map[string]any{}
+	if args.Input.Name != nil {
+		input["name"] = *args.Input.Name
+	}
+	if args.Input.Description != nil {
+		input["description"] = *args.Input.Description
+	}
+	if args.Input.AvatarUrl != nil {
+		input["avatarUrl"] = *args.Input.AvatarUrl
+	}
+	if args.Input.CoverUrl != nil {
+		input["coverUrl"] = *args.Input.CoverUrl
+	}
+	if args.Input.Category != nil {
+		input["category"] = *args.Input.Category
+	}
+	if args.Input.ApEnabled != nil {
+		input["apEnabled"] = *args.Input.ApEnabled
+	}
+	data, err := r.contentGQL(ctx,
+		`mutation($pageId: ID!, $input: UpdatePageInput!) { updatePage(pageId: $pageId, input: $input) { `+fanPageFields+` } }`,
+		map[string]any{"pageId": string(args.PageId), "input": input},
+	)
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		UpdatePage client.ContentFanPage `json:"updatePage"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, err
+	}
+	return &GatewayFanPageResolver{page: resp.UpdatePage, r: r}, nil
+}
+
+type GatewayPagePolicyInput struct {
+	DefaultAccess   *string
+	MinTrustLevel   *int32
+	CommentPolicy   *string
+	MinCommentTrust *int32
+}
+
+func (r *Resolver) SetPagePolicy(ctx context.Context, args struct {
+	PageId graphql.ID
+	Input  GatewayPagePolicyInput
+}) (*GatewayFanPageResolver, error) {
+	input := map[string]any{}
+	if args.Input.DefaultAccess != nil {
+		input["defaultAccess"] = *args.Input.DefaultAccess
+	}
+	if args.Input.MinTrustLevel != nil {
+		input["minTrustLevel"] = *args.Input.MinTrustLevel
+	}
+	if args.Input.CommentPolicy != nil {
+		input["commentPolicy"] = *args.Input.CommentPolicy
+	}
+	if args.Input.MinCommentTrust != nil {
+		input["minCommentTrust"] = *args.Input.MinCommentTrust
+	}
+	data, err := r.contentGQL(ctx,
+		`mutation($pageId: ID!, $input: PagePolicyInput!) { setPagePolicy(pageId: $pageId, input: $input) { `+fanPageFields+` } }`,
+		map[string]any{"pageId": string(args.PageId), "input": input},
+	)
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		SetPagePolicy client.ContentFanPage `json:"setPagePolicy"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, err
+	}
+	return &GatewayFanPageResolver{page: resp.SetPagePolicy, r: r}, nil
+}
+
+func (r *Resolver) DeletePage(ctx context.Context, args struct{ PageId graphql.ID }) (bool, error) {
+	data, err := r.contentGQL(ctx,
+		`mutation($pageId: ID!) { deletePage(pageId: $pageId) }`,
+		map[string]any{"pageId": string(args.PageId)},
+	)
+	if err != nil {
+		return false, err
+	}
+	var resp struct {
+		DeletePage bool `json:"deletePage"`
+	}
+	json.Unmarshal(data, &resp) //nolint:errcheck
+	return resp.DeletePage, nil
+}
+
+func (r *Resolver) FollowPage(ctx context.Context, args struct{ PageId graphql.ID }) (bool, error) {
+	data, err := r.contentGQL(ctx,
+		`mutation($pageId: ID!) { followPage(pageId: $pageId) }`,
+		map[string]any{"pageId": string(args.PageId)},
+	)
+	if err != nil {
+		return false, err
+	}
+	var resp struct {
+		FollowPage bool `json:"followPage"`
+	}
+	json.Unmarshal(data, &resp) //nolint:errcheck
+	return resp.FollowPage, nil
+}
+
+func (r *Resolver) UnfollowPage(ctx context.Context, args struct{ PageId graphql.ID }) (bool, error) {
+	data, err := r.contentGQL(ctx,
+		`mutation($pageId: ID!) { unfollowPage(pageId: $pageId) }`,
+		map[string]any{"pageId": string(args.PageId)},
+	)
+	if err != nil {
+		return false, err
+	}
+	var resp struct {
+		UnfollowPage bool `json:"unfollowPage"`
+	}
+	json.Unmarshal(data, &resp) //nolint:errcheck
+	return resp.UnfollowPage, nil
+}
+
+func (r *Resolver) AddPageMember(ctx context.Context, args struct {
+	PageId graphql.ID
+	UserId graphql.ID
+	Role   string
+}) (bool, error) {
+	data, err := r.contentGQL(ctx,
+		`mutation($pageId: ID!, $userId: ID!, $role: PageRole!) { addPageMember(pageId: $pageId, userId: $userId, role: $role) }`,
+		map[string]any{"pageId": string(args.PageId), "userId": string(args.UserId), "role": args.Role},
+	)
+	if err != nil {
+		return false, err
+	}
+	var resp struct {
+		AddPageMember bool `json:"addPageMember"`
+	}
+	json.Unmarshal(data, &resp) //nolint:errcheck
+	return resp.AddPageMember, nil
+}
+
+func (r *Resolver) RemovePageMember(ctx context.Context, args struct {
+	PageId graphql.ID
+	UserId graphql.ID
+}) (bool, error) {
+	data, err := r.contentGQL(ctx,
+		`mutation($pageId: ID!, $userId: ID!) { removePageMember(pageId: $pageId, userId: $userId) }`,
+		map[string]any{"pageId": string(args.PageId), "userId": string(args.UserId)},
+	)
+	if err != nil {
+		return false, err
+	}
+	var resp struct {
+		RemovePageMember bool `json:"removePageMember"`
+	}
+	json.Unmarshal(data, &resp) //nolint:errcheck
+	return resp.RemovePageMember, nil
+}
+
+func (r *Resolver) CreatePagePost(ctx context.Context, args struct {
+	PageId  graphql.ID
+	Content string
+}) (*PostResolver, error) {
+	data, err := r.contentGQL(ctx,
+		`mutation($pageId: ID!, $content: String!) { createPagePost(pageId: $pageId, content: $content) { `+postFields+` } }`,
+		map[string]any{"pageId": string(args.PageId), "content": args.Content},
+	)
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		CreatePagePost client.ContentPost `json:"createPagePost"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, err
+	}
+	users, err := r.resolveUsers(ctx, []string{resp.CreatePagePost.AuthorID})
+	if err != nil {
+		return nil, err
+	}
+	return &PostResolver{post: resp.CreatePagePost, users: users, r: r}, nil
+}
+
+func (r *Resolver) CreatePageArticle(ctx context.Context, args struct {
+	PageId       graphql.ID
+	Title        string
+	ContentMd    *string
+	AccessPolicy string
+}) (*ArticleResolver, error) {
+	vars := map[string]any{
+		"pageId":       string(args.PageId),
+		"title":        args.Title,
+		"accessPolicy": args.AccessPolicy,
+	}
+	if args.ContentMd != nil {
+		vars["contentMd"] = *args.ContentMd
+	}
+	data, err := r.contentGQL(ctx,
+		`mutation($pageId: ID!, $title: String!, $contentMd: String, $accessPolicy: String!) {
+			createPageArticle(pageId: $pageId, title: $title, contentMd: $contentMd, accessPolicy: $accessPolicy) {
+				`+articleFields+`
+			}
+		}`,
+		vars,
+	)
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		CreatePageArticle client.ContentArticle `json:"createPageArticle"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, err
+	}
+	return r.articleWithEnrichment(ctx, resp.CreatePageArticle)
+}

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net"
 	"net/http"
 	"os"
@@ -18,6 +19,7 @@ import (
 	"github.com/google/uuid"
 	graphql "github.com/graph-gophers/graphql-go"
 	"github.com/graph-gophers/graphql-go/relay"
+	"github.com/jackc/pgx/v5"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
@@ -88,6 +90,8 @@ func main() {
 
 	// Internal endpoint: federation service fetches public posts by author.
 	r.Get("/internal/posts", internalPostsHandler(pool))
+	r.Get("/internal/pages/{slug}", internalPageHandler(pool))
+	r.Get("/internal/pages/{slug}/feed", internalPageFeedHandler(pool))
 
 	// ─── HTTP server ──────────────────────────────────────────────────────────
 	srv := &http.Server{
@@ -210,6 +214,75 @@ func internalPostsHandler(pool *db.Pool) http.HandlerFunc {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resp)
+	}
+}
+
+func internalPageHandler(pool *db.Pool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		slug := chi.URLParam(r, "slug")
+		page, err := pool.GetPageBySlug(r.Context(), slug)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				http.NotFound(w, r)
+				return
+			}
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		type pageResp struct {
+			ID        string `json:"id"`
+			Slug      string `json:"slug"`
+			Name      string `json:"name"`
+			APEnabled bool   `json:"apEnabled"`
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(pageResp{
+			ID: page.ID.String(), Slug: page.Slug,
+			Name: page.Name, APEnabled: page.APEnabled,
+		})
+	}
+}
+
+func internalPageFeedHandler(pool *db.Pool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		slug := chi.URLParam(r, "slug")
+		page, err := pool.GetPageBySlug(r.Context(), slug)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				http.NotFound(w, r)
+				return
+			}
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		limit := 20
+		if l := r.URL.Query().Get("limit"); l != "" {
+			if n, err := strconv.Atoi(l); err == nil && n > 0 && n <= 20 {
+				limit = n
+			}
+		}
+		var before *time.Time
+		if b := r.URL.Query().Get("before"); b != "" {
+			if t, err := time.Parse(time.RFC3339, b); err == nil {
+				before = &t
+			}
+		}
+		posts, err := pool.ListPublicPostsByPage(r.Context(), page.ID, limit, before)
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		type postResp struct {
+			ID        string    `json:"id"`
+			Content   string    `json:"content"`
+			CreatedAt time.Time `json:"createdAt"`
+		}
+		out := make([]postResp, 0, len(posts))
+		for _, p := range posts {
+			out = append(out, postResp{ID: p.ID.String(), Content: p.Content, CreatedAt: p.CreatedAt})
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(out)
 	}
 }
 

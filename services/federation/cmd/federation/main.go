@@ -67,6 +67,12 @@ func main() {
 	// Internal endpoint: called by content service after post creation.
 	r.Post("/internal/post-created", h.NotifyPostCreated)
 
+	// Page actor routes.
+	r.Get("/p/{slug}", h.ServePageActor)
+	r.Get("/p/{slug}/outbox", h.ServePageOutbox)
+	r.Post("/p/{slug}/inbox", h.ServePageInbox)
+	r.Post("/internal/page-post-created", h.NotifyPagePostCreated)
+
 	// ─── HTTP server ──────────────────────────────────────────────────────────
 	srv := &http.Server{
 		Addr:         ":" + cfg.Port,

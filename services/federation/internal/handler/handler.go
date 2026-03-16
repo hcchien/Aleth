@@ -65,6 +65,12 @@ func (h *Handler) ServeWebFinger(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Page actor: acct:p.{slug}@{domain}
+	if strings.HasPrefix(username, "p.") {
+		h.servePageWebFinger(w, r, strings.TrimPrefix(username, "p."))
+		return
+	}
+
 	// Verify the user exists and has AP enabled.
 	user, err := h.auth.GetUserByUsername(r.Context(), username)
 	if err != nil {
@@ -380,7 +386,13 @@ func (h *Handler) sendSignedActivity(ctx context.Context, localUsername, targetI
 		return fmt.Errorf("decrypt private key: %w", err)
 	}
 
-	keyID := "https://" + h.cfg.Domain + "/@" + localUsername + "#main-key"
+	var keyID string
+	if strings.HasPrefix(localUsername, "p:") {
+		slug := strings.TrimPrefix(localUsername, "p:")
+		keyID = "https://" + h.cfg.Domain + "/p/" + slug + "#main-key"
+	} else {
+		keyID = "https://" + h.cfg.Domain + "/@" + localUsername + "#main-key"
+	}
 	if err := httpsig.SignRequest(req, keyID, privKey); err != nil {
 		return fmt.Errorf("sign request: %w", err)
 	}
@@ -395,6 +407,250 @@ func (h *Handler) sendSignedActivity(ctx context.Context, localUsername, targetI
 		return fmt.Errorf("inbox returned %d", resp.StatusCode)
 	}
 	return nil
+}
+
+// ─── Page actor handlers ──────────────────────────────────────────────────────
+
+func (h *Handler) servePageWebFinger(w http.ResponseWriter, r *http.Request, slug string) {
+	page, err := h.content.GetPageInfo(r.Context(), slug)
+	if err != nil || page == nil || !page.APEnabled {
+		http.NotFound(w, r)
+		return
+	}
+	actorURL := "https://" + h.cfg.Domain + "/p/" + slug
+	resp := map[string]any{
+		"subject": "acct:p." + slug + "@" + h.cfg.Domain,
+		"links": []map[string]string{{
+			"rel":  "self",
+			"type": "application/activity+json",
+			"href": actorURL,
+		}},
+	}
+	w.Header().Set("Content-Type", "application/jrd+json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+func (h *Handler) ServePageActor(w http.ResponseWriter, r *http.Request) {
+	slug := chi.URLParam(r, "slug")
+
+	// Must be AP accept header to serve JSON-LD
+	accept := r.Header.Get("Accept")
+	if !strings.Contains(accept, "application/activity+json") &&
+		!strings.Contains(accept, "application/ld+json") {
+		http.Redirect(w, r, "https://"+h.cfg.Domain+"/p/"+slug, http.StatusFound)
+		return
+	}
+
+	page, err := h.content.GetPageInfo(r.Context(), slug)
+	if err != nil {
+		log.Error().Err(err).Str("slug", slug).Msg("get page info")
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if page == nil || !page.APEnabled {
+		http.NotFound(w, r)
+		return
+	}
+
+	// Synthetic stable UUID for actor_keys table
+	pageUUID := uuid.NewSHA1(uuid.NameSpaceDNS, []byte("p:"+slug))
+	localUsername := "p:" + slug
+
+	actorKey, err := h.db.GetActorKeyByUsername(r.Context(), localUsername)
+	if err != nil {
+		log.Error().Err(err).Msg("get page actor key")
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if actorKey == nil {
+		pubPEM, privEnc, err := keys.GenerateActorKeyPair(h.cfg.PlatformKeySecret)
+		if err != nil {
+			log.Error().Err(err).Msg("generate page actor key")
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if err := h.db.EnsureActorKey(r.Context(), pageUUID, localUsername, pubPEM, privEnc); err != nil {
+			log.Error().Err(err).Msg("store page actor key")
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		actorKey, err = h.db.GetActorKeyByUsername(r.Context(), localUsername)
+		if err != nil || actorKey == nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	actor := ap.BuildPageActor(h.cfg.Domain, slug, page.Name, actorKey.PublicKeyPem)
+	w.Header().Set("Content-Type", "application/activity+json")
+	json.NewEncoder(w).Encode(actor)
+}
+
+func (h *Handler) ServePageOutbox(w http.ResponseWriter, r *http.Request) {
+	slug := chi.URLParam(r, "slug")
+
+	page, err := h.content.GetPageInfo(r.Context(), slug)
+	if err != nil || page == nil || !page.APEnabled {
+		http.NotFound(w, r)
+		return
+	}
+
+	if r.URL.Query().Get("page") != "true" {
+		w.Header().Set("Content-Type", "application/activity+json")
+		json.NewEncoder(w).Encode(ap.BuildPageOutboxIndex(h.cfg.Domain, slug, 0))
+		return
+	}
+
+	var before *time.Time
+	if b := r.URL.Query().Get("before"); b != "" {
+		if t, err := time.Parse(time.RFC3339, b); err == nil {
+			before = &t
+		}
+	}
+
+	posts, err := h.content.GetPageFeed(r.Context(), slug, 20, before)
+	if err != nil {
+		log.Error().Err(err).Str("slug", slug).Msg("get page feed")
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	var nextBefore *time.Time
+	if len(posts) == 20 {
+		t := posts[len(posts)-1].CreatedAt
+		nextBefore = &t
+	}
+
+	w.Header().Set("Content-Type", "application/activity+json")
+	json.NewEncoder(w).Encode(ap.BuildPageOutboxPage(h.cfg.Domain, slug, posts, nextBefore))
+}
+
+func (h *Handler) ServePageInbox(w http.ResponseWriter, r *http.Request) {
+	slug := chi.URLParam(r, "slug")
+	localUsername := "p:" + slug
+
+	page, err := h.content.GetPageInfo(r.Context(), slug)
+	if err != nil || page == nil || !page.APEnabled {
+		http.NotFound(w, r)
+		return
+	}
+
+	body, err := io.ReadAll(io.LimitReader(r.Body, 64*1024))
+	if err != nil {
+		http.Error(w, "read error", http.StatusBadRequest)
+		return
+	}
+
+	var activity map[string]any
+	if err := json.Unmarshal(body, &activity); err != nil {
+		http.Error(w, "invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	actType, _ := activity["type"].(string)
+	switch actType {
+	case "Follow":
+		h.handlePageFollow(w, r, localUsername, activity)
+	case "Undo":
+		obj, _ := activity["object"].(map[string]any)
+		if obj == nil {
+			http.Error(w, "missing object", http.StatusBadRequest)
+			return
+		}
+		if t, _ := obj["type"].(string); t == "Follow" {
+			h.handlePageUnfollow(w, r, localUsername, obj)
+		} else {
+			w.WriteHeader(http.StatusAccepted)
+		}
+	default:
+		w.WriteHeader(http.StatusAccepted)
+	}
+}
+
+func (h *Handler) handlePageFollow(w http.ResponseWriter, r *http.Request, localUsername string, activity map[string]any) {
+	actorURL, _ := activity["actor"].(string)
+	if actorURL == "" {
+		http.Error(w, "missing actor", http.StatusBadRequest)
+		return
+	}
+
+	inboxURL, err := fetchRemoteInbox(r.Context(), actorURL)
+	if err != nil || inboxURL == "" {
+		w.WriteHeader(http.StatusAccepted)
+		return
+	}
+
+	if err := h.db.AddRemoteFollower(r.Context(), localUsername, actorURL, inboxURL); err != nil {
+		log.Error().Err(err).Msg("store page remote follower")
+	}
+
+	slug := strings.TrimPrefix(localUsername, "p:")
+	accept := ap.BuildAccept(h.cfg.Domain, localUsername, activity)
+	// Override the actor URL in Accept to use page URL
+	accept["actor"] = "https://" + h.cfg.Domain + "/p/" + slug
+
+	if err := h.sendSignedActivity(r.Context(), localUsername, inboxURL, accept); err != nil {
+		log.Error().Err(err).Str("inbox", inboxURL).Msg("send page Accept")
+	}
+
+	w.WriteHeader(http.StatusAccepted)
+}
+
+func (h *Handler) handlePageUnfollow(w http.ResponseWriter, r *http.Request, localUsername string, followActivity map[string]any) {
+	actorURL, _ := followActivity["actor"].(string)
+	if actorURL != "" {
+		if err := h.db.RemoveRemoteFollower(r.Context(), localUsername, actorURL); err != nil {
+			log.Error().Err(err).Msg("remove page remote follower")
+		}
+	}
+	w.WriteHeader(http.StatusAccepted)
+}
+
+func (h *Handler) NotifyPagePostCreated(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		PageSlug  string    `json:"pageSlug"`
+		PostID    string    `json:"postId"`
+		Content   string    `json:"content"`
+		CreatedAt time.Time `json:"createdAt"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+
+	localUsername := "p:" + req.PageSlug
+	post := client.ContentPost{
+		ID:        req.PostID,
+		Content:   req.Content,
+		CreatedAt: req.CreatedAt,
+	}
+
+	slug := req.PageSlug
+	actorURL := "https://" + h.cfg.Domain + "/p/" + slug
+	activity := ap.BuildCreateActivity(h.cfg.Domain, "p."+slug, post)
+	// Override actor URL to use /p/{slug}
+	activity["actor"] = actorURL
+	if obj, ok := activity["object"].(map[string]any); ok {
+		obj["attributedTo"] = actorURL
+		obj["cc"] = []string{actorURL + "/followers"}
+		activity["object"] = obj
+	}
+	activity["cc"] = []string{actorURL + "/followers"}
+
+	followers, err := h.db.ListRemoteFollowers(r.Context(), localUsername)
+	if err != nil {
+		log.Error().Err(err).Str("page", req.PageSlug).Msg("list remote page followers")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	for _, f := range followers {
+		if err := h.db.EnqueueDelivery(r.Context(), localUsername, f.InboxURL, activity); err != nil {
+			log.Error().Err(err).Str("inbox", f.InboxURL).Msg("enqueue page delivery")
+		}
+	}
+
+	w.WriteHeader(http.StatusOK)
 }
 
 // fetchRemoteInbox retrieves the inbox URL from a remote AP actor document.

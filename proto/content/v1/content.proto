@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package content.v1;
+
+option go_package = "github.com/aleth/gateway/proto/content/v1;contentv1";
+
+// ContentService provides internal access control checks for the API Gateway.
+service ContentService {
+  // CheckAccess verifies if a user can access a given article.
+  rpc CheckAccess(CheckAccessRequest) returns (CheckAccessResponse);
+}
+
+message CheckAccessRequest {
+  string article_id = 1;
+  string user_id    = 2;   // empty string for unauthenticated users
+  int32  trust_level = 3;
+}
+
+message CheckAccessResponse {
+  bool   allowed = 1;
+  string reason  = 2;  // human-readable denial reason (not exposed to clients)
+}

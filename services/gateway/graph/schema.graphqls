@@ -1,0 +1,339 @@
+# Gateway stitches sub-schemas from Auth, Content, and Feed services.
+# This file defines the merged root schema.
+
+# --- From Auth Service ---
+
+type User {
+  id: ID!
+  did: String!
+  username: String!
+  displayName: String
+  email: String
+  trustLevel: Int!
+  # apEnabled controls whether this user's profile is discoverable via ActivityPub.
+  apEnabled: Boolean!
+  createdAt: String!
+  board: Board
+}
+
+type AuthPayload {
+  accessToken: String!
+  refreshToken: String!
+  user: User!
+}
+
+type PasskeyLoginOptions {
+  challenge: String!
+  challengeToken: String!
+  rpId: String!
+  timeoutMs: Int!
+  allowCredentialIds: [String!]!
+}
+
+input PasskeyAssertionInput {
+  credentialID: String!
+  challengeToken: String!
+  clientDataJSON: String!
+  authenticatorData: String!
+  signature: String!
+  userHandle: String
+  username: String
+}
+
+type FollowStats {
+  followerCount: Int!
+  followingCount: Int!
+  isFollowing: Boolean!
+}
+
+input RegisterInput {
+  username: String!
+  email: String!
+  password: String!
+}
+
+input LoginInput {
+  email: String!
+  password: String!
+}
+
+# --- From Content Service ---
+
+type Post {
+  id: ID!
+  author: User!
+  parentId: ID
+  rootId: ID
+  kind: String!
+  content: String!
+  noteTitle: String
+  noteCover: String
+  noteSummary: String
+  resharedFromId: ID
+  resharedFrom: Post
+  replyCount: Int!
+  likeCount: Int!
+  isLiked: Boolean!
+  viewerEmotion: String
+  reactionCounts: [ReactionCount!]!
+  createdAt: String!
+  signatureInfo: SignatureInfo!
+}
+
+type Article {
+  id: ID!
+  board: Board!
+  author: User!
+  title: String!
+  slug: String!
+  contentMd: String
+  status: String!
+  accessPolicy: String!
+  createdAt: String!
+  publishedAt: String
+  updatedAt: String!
+  signatureInfo: SignatureInfo!
+}
+
+type SignatureInfo {
+  isSigned: Boolean!
+  isVerified: Boolean!
+  contentHash: String
+  signature: String
+  algorithm: String
+  explanation: String!
+}
+
+type ReactionCount {
+  emotion: String!
+  count: Int!
+}
+
+type FriendReactor {
+  id: ID!
+  username: String!
+  displayName: String
+  emotion: String!
+}
+
+type ArticleComment {
+  id: ID!
+  articleId: ID!
+  author: User!
+  parentId: ID
+  content: String!
+  createdAt: String!
+}
+
+type VcRequirement {
+  vcType: String!
+  issuer: String!
+}
+
+type BoardWritePolicy {
+  minTrustLevel: Int!
+  requireVcs: [VcRequirement!]!
+  minCommentTrust: Int!
+  requireCommentVcs: [VcRequirement!]!
+}
+
+type Board {
+  id: ID!
+  owner: User!
+  name: String!
+  description: String
+  defaultAccess: String!
+  subscriberCount: Int!
+  isSubscribed: Boolean!
+  writePolicy: BoardWritePolicy!
+  createdAt: String!
+}
+
+type PostConnection {
+  items: [Post!]!
+  nextCursor: String
+  hasMore: Boolean!
+}
+
+type NoteConnection {
+  items: [Post!]!
+  nextCursor: String
+  hasMore: Boolean!
+}
+
+type ArticleConnection {
+  items: [Article!]!
+  nextCursor: String
+  hasMore: Boolean!
+}
+
+input CreatePostInput {
+  content: String!
+}
+
+input CreateNoteInput {
+  content: String!
+  noteTitle: String!
+  noteCover: String
+  noteSummary: String
+}
+
+input CreateArticleInput {
+  title: String!
+  contentMd: String
+  accessPolicy: String!
+}
+
+input UpdateArticleInput {
+  title: String
+  contentMd: String
+  accessPolicy: String
+  status: String
+}
+
+input ResharePostInput {
+  content: String
+}
+
+input BoardSettingsInput {
+  name: String
+  description: String
+  defaultAccess: String
+}
+
+input VcRequirementInput {
+  vcType: String!
+  issuer: String!
+}
+
+input BoardVcPolicyInput {
+  minTrustLevel: Int!
+  requireVcs: [VcRequirementInput!]!
+  minCommentTrust: Int!
+  requireCommentVcs: [VcRequirementInput!]!
+}
+
+# --- From Feed Service ---
+
+type FeedItem {
+  id: ID!
+  type: String!
+  post: Post
+  article: Article
+  score: Float!
+}
+
+type FeedConnection {
+  items: [FeedItem!]!
+  nextCursor: String
+  hasMore: Boolean!
+}
+
+# --- Root types ---
+
+type Query {
+  # Auth
+  me: User
+  didDocument(did: String!): String
+  followStats(userID: ID!): FollowStats!
+  # Returns the authenticated viewer's L2 reputation status.
+  myReputation: ReputationStatus!
+
+  # Content
+  post(id: ID!): Post
+  posts(after: String, limit: Int): PostConnection!
+  postReplies(postId: ID!, limit: Int): [Post!]!
+  notes(after: String, limit: Int): NoteConnection!
+  article(id: ID, slug: String): Article
+  board(username: String!): Board
+  boardArticles(username: String!, after: String, limit: Int): ArticleConnection!
+  articleComments(articleId: ID!, limit: Int): [ArticleComment!]!
+  commentReplies(commentId: ID!, limit: Int): [ArticleComment!]!
+
+  # VC registry
+  availableVcTypes: [VcTypeInfo!]!
+
+  # Feed
+  feed(after: String, limit: Int): FeedConnection!
+  exploreFeed(after: String, limit: Int): FeedConnection!
+  # Progressive loading: friends of the viewer who reacted to a post.
+  # Returns [] for unauthenticated requests.
+  postFriendReactors(postId: ID!, limit: Int): [FriendReactor!]!
+}
+
+# --- Reputation (L2 stamp scoring) ---
+
+type ReputationStamp {
+  provider:   String!
+  score:      Int!
+  maxScore:   Int!
+  verifiedAt: String!
+  expiresAt:  String
+  isValid:    Boolean!
+}
+
+type ReputationStatus {
+  stamps:     [ReputationStamp!]!
+  totalScore: Int!
+  threshold:  Int!
+  isL2:       Boolean!
+}
+
+type Mutation {
+  # Auth
+  register(input: RegisterInput!): AuthPayload!
+  login(input: LoginInput!): AuthPayload!
+  loginWithGoogle(idToken: String!): AuthPayload!
+  loginWithFacebook(accessToken: String!): AuthPayload!
+  beginPasskeyLogin(username: String): PasskeyLoginOptions!
+  finishPasskeyLogin(input: PasskeyAssertionInput!): AuthPayload!
+  registerPasskey(credentialID: String!, credentialPublicKey: String!, signCount: Int!): AuthPayload!
+  refreshToken(token: String!): AuthPayload!
+  revokeToken: Boolean!
+  followUser(userID: ID!): Boolean!
+  unfollowUser(userID: ID!): Boolean!
+  # Phone-based L2 reputation
+  requestPhoneOTP(phone: String!): Boolean!
+  verifyPhoneOTP(phone: String!, code: String!): AuthPayload!
+  # ActivityPub federation opt-in/out
+  setActivityPubEnabled(enabled: Boolean!): Boolean!
+
+  # Content
+  createPost(input: CreatePostInput!): Post!
+  createNote(input: CreateNoteInput!): Post!
+  resharePost(postId: ID!, input: ResharePostInput!): Post!
+  replyPost(postId: ID!, input: CreatePostInput!): Post!
+  deletePost(id: ID!): Boolean!
+  likePost(postId: ID!): Boolean!
+  unlikePost(postId: ID!): Boolean!
+  reactPost(postId: ID!, emotion: String!): Boolean!
+  unreactPost(postId: ID!): Boolean!
+  createArticleComment(articleId: ID!, content: String!, parentCommentId: ID): ArticleComment!
+  createArticle(input: CreateArticleInput!): Article!
+  updateArticle(id: ID!, input: UpdateArticleInput!): Article!
+  publishArticle(id: ID!): Article!
+  deleteArticle(id: ID!): Boolean!
+  updateBoardSettings(input: BoardSettingsInput!): Board!
+  updateBoardVcPolicy(input: BoardVcPolicyInput!): Board!
+  subscribeBoard(ownerID: ID!): Boolean!
+  unsubscribeBoard(ownerID: ID!): Boolean!
+  # VC registry management
+  registerVcType(input: RegisterVcTypeInput!): VcTypeInfo!
+  disableVcType(vcType: String!, issuer: String!): Boolean!
+}
+
+# VC type registry
+type VcTypeInfo {
+  vcType: String!
+  issuer: String!
+  label: String!
+  description: String
+  # null for platform built-ins
+  createdByUsername: String
+}
+
+input RegisterVcTypeInput {
+  vcType: String!
+  label: String!
+  description: String
+}

@@ -107,6 +107,70 @@ func TestBuildCreateActivity(t *testing.T) {
 	}
 }
 
+func TestBuildPageActor(t *testing.T) {
+	actor := BuildPageActor("example.com", "my-band", "My Band", "-----BEGIN PUBLIC KEY-----\n...")
+	if actor["type"] != "Group" {
+		t.Fatalf("expected type Group, got %v", actor["type"])
+	}
+	if actor["preferredUsername"] != "p.my-band" {
+		t.Fatalf("unexpected preferredUsername: %v", actor["preferredUsername"])
+	}
+	if actor["id"] != "https://example.com/p/my-band" {
+		t.Fatalf("unexpected id: %v", actor["id"])
+	}
+	inbox, _ := actor["inbox"].(string)
+	if !strings.Contains(inbox, "/p/my-band/inbox") {
+		t.Fatalf("unexpected inbox: %v", inbox)
+	}
+	pk, _ := actor["publicKey"].(map[string]any)
+	if pk == nil || pk["publicKeyPem"] != "-----BEGIN PUBLIC KEY-----\n..." {
+		t.Fatalf("unexpected publicKey: %v", pk)
+	}
+	// displayName fallback
+	actor2 := BuildPageActor("example.com", "empty-name", "", "pem")
+	if actor2["name"] != "empty-name" {
+		t.Fatalf("expected slug as name fallback, got: %v", actor2["name"])
+	}
+}
+
+func TestBuildPageOutboxIndex(t *testing.T) {
+	idx := BuildPageOutboxIndex("example.com", "my-band", 10)
+	if idx["type"] != "OrderedCollection" {
+		t.Fatalf("unexpected type: %v", idx["type"])
+	}
+	if idx["totalItems"] != 10 {
+		t.Fatalf("unexpected totalItems: %v", idx["totalItems"])
+	}
+	first, _ := idx["first"].(string)
+	if !strings.Contains(first, "/p/my-band/outbox") {
+		t.Fatalf("first link should reference /p/my-band/outbox: %v", first)
+	}
+}
+
+func TestBuildPageOutboxPage(t *testing.T) {
+	now := time.Now()
+	posts := []client.ContentPost{
+		{ID: "p1", Content: "hello from page", CreatedAt: now},
+	}
+	before := now.Add(-time.Hour)
+	page := BuildPageOutboxPage("example.com", "my-band", posts, &before)
+	if page["type"] != "OrderedCollectionPage" {
+		t.Fatalf("unexpected type: %v", page["type"])
+	}
+	items, _ := page["orderedItems"].([]map[string]any)
+	if len(items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(items))
+	}
+	actor, _ := items[0]["actor"].(string)
+	if !strings.Contains(actor, "/p/my-band") {
+		t.Fatalf("activity actor should contain /p/my-band: %v", actor)
+	}
+	next, _ := page["next"].(string)
+	if !strings.Contains(next, "before=") {
+		t.Fatalf("expected next cursor: %v", next)
+	}
+}
+
 func TestBuildAccept(t *testing.T) {
 	follow := map[string]any{
 		"id":     "https://remote.example/follows/1",

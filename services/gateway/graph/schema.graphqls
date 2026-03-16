@@ -213,6 +213,67 @@ input BoardVcPolicyInput {
   requireCommentVcs: [VcRequirementInput!]!
 }
 
+enum PageRole {
+  admin
+  editor
+}
+
+type FanPage {
+  id: ID!
+  slug: String!
+  name: String!
+  description: String
+  avatarUrl: String
+  coverUrl: String
+  category: String!
+  apEnabled: Boolean!
+  defaultAccess: String!
+  minTrustLevel: Int!
+  commentPolicy: String!
+  minCommentTrust: Int!
+  followerCount: Int!
+  isFollowing: Boolean!
+  createdAt: String!
+  updatedAt: String!
+}
+
+type PageMember {
+  pageId: ID!
+  userId: ID!
+  user: User!
+  role: PageRole!
+  joinedAt: String!
+}
+
+type PageMemberConnection {
+  items: [PageMember!]!
+}
+
+input CreatePageInput {
+  slug: String!
+  name: String!
+  description: String
+  avatarUrl: String
+  coverUrl: String
+  category: String
+}
+
+input UpdatePageInput {
+  name: String
+  description: String
+  avatarUrl: String
+  coverUrl: String
+  category: String
+  apEnabled: Boolean
+}
+
+input PagePolicyInput {
+  defaultAccess: String
+  minTrustLevel: Int
+  commentPolicy: String
+  minCommentTrust: Int
+}
+
 # --- From Feed Service ---
 
 type FeedItem {
@@ -249,6 +310,13 @@ type Query {
   boardArticles(username: String!, after: String, limit: Int): ArticleConnection!
   articleComments(articleId: ID!, limit: Int): [ArticleComment!]!
   commentReplies(commentId: ID!, limit: Int): [ArticleComment!]!
+
+  # Fan pages
+  page(slug: String!): FanPage
+  pageFeed(slug: String!, after: String, limit: Int): PostConnection!
+  pageArticles(slug: String!, after: String, limit: Int): ArticleConnection!
+  pageMembers(pageId: ID!): PageMemberConnection!
+  myPages: [FanPage!]!
 
   # VC registry
   availableVcTypes: [VcTypeInfo!]!
@@ -317,6 +385,17 @@ type Mutation {
   updateBoardVcPolicy(input: BoardVcPolicyInput!): Board!
   subscribeBoard(ownerID: ID!): Boolean!
   unsubscribeBoard(ownerID: ID!): Boolean!
+  # Fan pages
+  createPage(input: CreatePageInput!): FanPage!
+  updatePage(pageId: ID!, input: UpdatePageInput!): FanPage!
+  setPagePolicy(pageId: ID!, input: PagePolicyInput!): FanPage!
+  deletePage(pageId: ID!): Boolean!
+  followPage(pageId: ID!): Boolean!
+  unfollowPage(pageId: ID!): Boolean!
+  addPageMember(pageId: ID!, userId: ID!, role: PageRole!): Boolean!
+  removePageMember(pageId: ID!, userId: ID!): Boolean!
+  createPagePost(pageId: ID!, content: String!): Post!
+  createPageArticle(pageId: ID!, title: String!, contentMd: String, accessPolicy: String!): Article!
   # VC registry management
   registerVcType(input: RegisterVcTypeInput!): VcTypeInfo!
   disableVcType(vcType: String!, issuer: String!): Boolean!

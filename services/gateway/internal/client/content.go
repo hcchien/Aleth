@@ -111,6 +111,39 @@ type ContentArticleConnection struct {
 	HasMore    bool             `json:"hasMore"`
 }
 
+// ContentFanPage is a fan page as returned by the Content service.
+type ContentFanPage struct {
+	ID              string  `json:"id"`
+	Slug            string  `json:"slug"`
+	Name            string  `json:"name"`
+	Description     *string `json:"description"`
+	AvatarURL       *string `json:"avatarUrl"`
+	CoverURL        *string `json:"coverUrl"`
+	Category        string  `json:"category"`
+	APEnabled       bool    `json:"apEnabled"`
+	DefaultAccess   string  `json:"defaultAccess"`
+	MinTrustLevel   int32   `json:"minTrustLevel"`
+	CommentPolicy   string  `json:"commentPolicy"`
+	MinCommentTrust int32   `json:"minCommentTrust"`
+	FollowerCount   int32   `json:"followerCount"`
+	IsFollowing     bool    `json:"isFollowing"`
+	CreatedAt       string  `json:"createdAt"`
+	UpdatedAt       string  `json:"updatedAt"`
+}
+
+// ContentPageMember is a page member as returned by the Content service.
+type ContentPageMember struct {
+	PageID   string `json:"pageId"`
+	UserID   string `json:"userId"`
+	Role     string `json:"role"`
+	JoinedAt string `json:"joinedAt"`
+}
+
+// ContentPageMemberConnection wraps a list of page members.
+type ContentPageMemberConnection struct {
+	Items []ContentPageMember `json:"items"`
+}
+
 // ContentClient sends requests to the Content service.
 type ContentClient struct {
 	baseURL    string

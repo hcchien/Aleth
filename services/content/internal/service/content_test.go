@@ -234,6 +234,58 @@ func (f *fakeContentStore) UpdateBoardVcPolicy(ctx context.Context, p db.UpdateB
 	return f.updateBoardVcPolicyFn(ctx, p)
 }
 
+// Fan page stubs — return sensible zero-value defaults so existing tests don't break.
+func (f *fakeContentStore) CreatePage(ctx context.Context, params db.CreatePageParams) (db.FanPage, error) {
+	return db.FanPage{ID: uuid.New(), Slug: params.Slug, Name: params.Name, Category: params.Category, DefaultAccess: "public", CommentPolicy: "public", CreatedAt: time.Now(), UpdatedAt: time.Now()}, nil
+}
+func (f *fakeContentStore) GetPageBySlug(ctx context.Context, slug string) (db.FanPage, error) {
+	return db.FanPage{}, pgx.ErrNoRows
+}
+func (f *fakeContentStore) GetPageByID(ctx context.Context, id uuid.UUID) (db.FanPage, error) {
+	return db.FanPage{}, pgx.ErrNoRows
+}
+func (f *fakeContentStore) UpdatePage(ctx context.Context, params db.UpdatePageParams) (db.FanPage, error) {
+	return db.FanPage{ID: params.ID, DefaultAccess: "public", CommentPolicy: "public", CreatedAt: time.Now(), UpdatedAt: time.Now()}, nil
+}
+func (f *fakeContentStore) UpdatePagePolicy(ctx context.Context, params db.UpdatePagePolicyParams) (db.FanPage, error) {
+	return db.FanPage{ID: params.ID, DefaultAccess: params.DefaultAccess, CommentPolicy: params.CommentPolicy, CreatedAt: time.Now(), UpdatedAt: time.Now()}, nil
+}
+func (f *fakeContentStore) DeletePage(ctx context.Context, id uuid.UUID) error { return nil }
+func (f *fakeContentStore) AddPageMember(ctx context.Context, pageID, userID uuid.UUID, role string) error {
+	return nil
+}
+func (f *fakeContentStore) RemovePageMember(ctx context.Context, pageID, userID uuid.UUID) error {
+	return nil
+}
+func (f *fakeContentStore) GetPageMember(ctx context.Context, pageID, userID uuid.UUID) (*db.PageMember, error) {
+	return nil, nil
+}
+func (f *fakeContentStore) ListPageMembers(ctx context.Context, pageID uuid.UUID) ([]db.PageMember, error) {
+	return nil, nil
+}
+func (f *fakeContentStore) ListPagesByMember(ctx context.Context, userID uuid.UUID) ([]db.FanPage, error) {
+	return nil, nil
+}
+func (f *fakeContentStore) FollowPage(ctx context.Context, pageID, userID uuid.UUID) error { return nil }
+func (f *fakeContentStore) UnfollowPage(ctx context.Context, pageID, userID uuid.UUID) error {
+	return nil
+}
+func (f *fakeContentStore) IsFollowingPage(ctx context.Context, pageID, userID uuid.UUID) (bool, error) {
+	return false, nil
+}
+func (f *fakeContentStore) CountPageFollowers(ctx context.Context, pageID uuid.UUID) (int64, error) {
+	return 0, nil
+}
+func (f *fakeContentStore) ListPagePosts(ctx context.Context, params db.ListPagePostsParams) ([]db.Post, error) {
+	return nil, nil
+}
+func (f *fakeContentStore) ListPageArticles(ctx context.Context, params db.ListPageArticlesParams) ([]db.Article, error) {
+	return nil, nil
+}
+func (f *fakeContentStore) ListPublicPostsByPage(ctx context.Context, pageID uuid.UUID, limit int, before *time.Time) ([]db.Post, error) {
+	return nil, nil
+}
+
 func TestBoardAndPostFlows(t *testing.T) {
 	st := newFakeContentStore()
 	s := NewContentService(st)
@@ -255,7 +307,7 @@ func TestBoardAndPostFlows(t *testing.T) {
 		t.Fatalf("GetBoardByID error: %v", err)
 	}
 
-	if _, err := s.CreatePost(ctx, owner, "  hello ", 0); err != nil {
+	if _, err := s.CreatePost(ctx, owner, "  hello ", 0, nil); err != nil {
 		t.Fatalf("CreatePost error: %v", err)
 	}
 	if _, err := s.ListPosts(ctx, nil, 20, nil); err != nil {
@@ -306,10 +358,10 @@ func TestValidationAndReplyBranches(t *testing.T) {
 	ctx := context.Background()
 	uid := uuid.New()
 
-	if _, err := s.CreatePost(ctx, uid, "   ", 0); err == nil {
+	if _, err := s.CreatePost(ctx, uid, "   ", 0, nil); err == nil {
 		t.Fatalf("expected empty content error")
 	}
-	if _, err := s.CreatePost(ctx, uid, strings.Repeat("a", 501), 0); err == nil {
+	if _, err := s.CreatePost(ctx, uid, strings.Repeat("a", 501), 0, nil); err == nil {
 		t.Fatalf("expected max length error")
 	}
 
@@ -336,12 +388,12 @@ func TestArticleFlows(t *testing.T) {
 	ctx := context.Background()
 	author := uuid.New()
 
-	_, err := s.CreateArticle(ctx, author, CreateArticleInput{Title: "  ", AccessPolicy: "public"})
+	_, err := s.CreateArticle(ctx, author, uuid.Nil, CreateArticleInput{Title: "  ", AccessPolicy: "public"}, nil)
 	if err == nil {
 		t.Fatalf("expected title error")
 	}
 
-	article, err := s.CreateArticle(ctx, author, CreateArticleInput{Title: "Hello World", AccessPolicy: "public"})
+	article, err := s.CreateArticle(ctx, author, uuid.Nil, CreateArticleInput{Title: "Hello World", AccessPolicy: "public"}, nil)
 	if err != nil {
 		t.Fatalf("CreateArticle error: %v", err)
 	}
@@ -468,7 +520,7 @@ func TestContentSigningAndVerification(t *testing.T) {
 	s.SetSigningSecret("signing-secret")
 
 	author := uuid.New()
-	post, err := s.CreatePost(context.Background(), author, "hello signed world", 0)
+	post, err := s.CreatePost(context.Background(), author, "hello signed world", 0, nil)
 	if err != nil {
 		t.Fatalf("CreatePost error: %v", err)
 	}
@@ -487,7 +539,7 @@ func TestContentSigningFailsAfterTamper(t *testing.T) {
 	s.SetSigningSecret("signing-secret")
 
 	author := uuid.New()
-	post, err := s.CreatePost(context.Background(), author, "original", 0)
+	post, err := s.CreatePost(context.Background(), author, "original", 0, nil)
 	if err != nil {
 		t.Fatalf("CreatePost error: %v", err)
 	}
@@ -600,7 +652,7 @@ func TestSignatureNonFatal(t *testing.T) {
 		return errors.New("db unavailable")
 	}
 	// CreatePost should succeed even if signature update fails
-	post, err := s.CreatePost(context.Background(), uuid.New(), "content", 0)
+	post, err := s.CreatePost(context.Background(), uuid.New(), "content", 0, nil)
 	if err != nil {
 		t.Fatalf("expected no error on non-fatal signature failure, got %v", err)
 	}
@@ -618,7 +670,7 @@ func TestSignatureNonFatal(t *testing.T) {
 	st.getBoardByOwnerIDFn = func(context.Context, uuid.UUID) (db.Board, error) {
 		return db.Board{ID: boardID, OwnerID: owner}, nil
 	}
-	article, err := s.CreateArticle(ctx, owner, CreateArticleInput{Title: "Test", AccessPolicy: "public"})
+	article, err := s.CreateArticle(ctx, owner, uuid.Nil, CreateArticleInput{Title: "Test", AccessPolicy: "public"}, nil)
 	if err != nil {
 		t.Fatalf("expected no error on non-fatal article signature failure, got %v", err)
 	}
@@ -847,10 +899,10 @@ func TestBuildArticleSignatureInfo(t *testing.T) {
 		return db.Board{ID: boardID, OwnerID: owner}, nil
 	}
 
-	article, err := s.CreateArticle(context.Background(), owner, CreateArticleInput{
+	article, err := s.CreateArticle(context.Background(), owner, uuid.Nil, CreateArticleInput{
 		Title:        "Signed Article",
 		AccessPolicy: "public",
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("CreateArticle error: %v", err)
 	}
@@ -1013,7 +1065,7 @@ func TestCreatePost_PublishesPostCreatedEvent(t *testing.T) {
 	s, pub := newServiceWithCapture(st)
 	authorID := uuid.New()
 
-	post, err := s.CreatePost(context.Background(), authorID, "hello world", 0)
+	post, err := s.CreatePost(context.Background(), authorID, "hello world", 0, nil)
 	if err != nil {
 		t.Fatalf("CreatePost error: %v", err)
 	}
@@ -1314,7 +1366,7 @@ func TestCreatePost_DBError_NoEventPublished(t *testing.T) {
 	}
 
 	s, pub := newServiceWithCapture(st)
-	_, err := s.CreatePost(context.Background(), uuid.New(), "hello", 0)
+	_, err := s.CreatePost(context.Background(), uuid.New(), "hello", 0, nil)
 	if err == nil {
 		t.Fatal("expected error from DB")
 	}

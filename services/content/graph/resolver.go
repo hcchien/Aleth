@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -368,7 +369,7 @@ func (r *Resolver) CreatePost(ctx context.Context, args struct{ Input CreatePost
 	if err != nil {
 		return nil, fmt.Errorf("invalid user id")
 	}
-	post, err := r.svc.CreatePost(ctx, authorID, args.Input.Content, claims.TrustLevel)
+	post, err := r.svc.CreatePost(ctx, authorID, args.Input.Content, claims.TrustLevel, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -545,11 +546,11 @@ func (r *Resolver) CreateArticle(ctx context.Context, args struct{ Input CreateA
 		return nil, fmt.Errorf("not authenticated")
 	}
 	authorID, _ := uuid.Parse(claims.UserID)
-	article, err := r.svc.CreateArticle(ctx, authorID, service.CreateArticleInput{
+	article, err := r.svc.CreateArticle(ctx, authorID, uuid.Nil, service.CreateArticleInput{
 		Title:        args.Input.Title,
 		ContentMd:    args.Input.ContentMd,
 		AccessPolicy: args.Input.AccessPolicy,
-	})
+	}, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1010,6 +1011,423 @@ func (r *Resolver) notifyFederation(username string, post db.Post) {
 	if resp.StatusCode >= 300 {
 		log.Warn().Int("status", resp.StatusCode).Str("username", username).Msg("federation notify: unexpected status")
 	}
+}
+
+// ─── Fan page resolvers ───────────────────────────────────────────────────────
+
+type FanPageResolver struct {
+	page db.FanPage
+	svc  *service.ContentService
+}
+
+func (r *FanPageResolver) ID() graphql.ID        { return graphql.ID(r.page.ID.String()) }
+func (r *FanPageResolver) Slug() string           { return r.page.Slug }
+func (r *FanPageResolver) Name() string           { return r.page.Name }
+func (r *FanPageResolver) Description() *string   { return r.page.Description }
+func (r *FanPageResolver) AvatarUrl() *string     { return r.page.AvatarURL }
+func (r *FanPageResolver) CoverUrl() *string      { return r.page.CoverURL }
+func (r *FanPageResolver) Category() string       { return r.page.Category }
+func (r *FanPageResolver) ApEnabled() bool        { return r.page.APEnabled }
+func (r *FanPageResolver) DefaultAccess() string  { return r.page.DefaultAccess }
+func (r *FanPageResolver) MinTrustLevel() int32   { return int32(r.page.MinTrustLevel) }
+func (r *FanPageResolver) CommentPolicy() string  { return r.page.CommentPolicy }
+func (r *FanPageResolver) MinCommentTrust() int32 { return int32(r.page.MinCommentTrust) }
+func (r *FanPageResolver) CreatedAt() string      { return r.page.CreatedAt.Format(time.RFC3339) }
+func (r *FanPageResolver) UpdatedAt() string      { return r.page.UpdatedAt.Format(time.RFC3339) }
+
+func (r *FanPageResolver) FollowerCount(ctx context.Context) (int32, error) {
+	n, err := r.svc.CountPageFollowers(ctx, r.page.ID)
+	return int32(n), err
+}
+
+func (r *FanPageResolver) IsFollowing(ctx context.Context) (bool, error) {
+	claims, ok := ClaimsFromContext(ctx)
+	if !ok {
+		return false, nil
+	}
+	uid, err := uuid.Parse(claims.UserID)
+	if err != nil {
+		return false, nil
+	}
+	return r.svc.IsFollowingPage(ctx, r.page.ID, uid)
+}
+
+type PageMemberResolver struct {
+	member db.PageMember
+}
+
+func (r *PageMemberResolver) PageId() graphql.ID { return graphql.ID(r.member.PageID.String()) }
+func (r *PageMemberResolver) UserId() graphql.ID { return graphql.ID(r.member.UserID.String()) }
+func (r *PageMemberResolver) Role() string       { return r.member.Role }
+func (r *PageMemberResolver) JoinedAt() string   { return r.member.JoinedAt.Format(time.RFC3339) }
+
+type PageMemberConnectionResolver struct {
+	members []db.PageMember
+}
+
+func (r *PageMemberConnectionResolver) Items() []*PageMemberResolver {
+	out := make([]*PageMemberResolver, len(r.members))
+	for i, m := range r.members {
+		out[i] = &PageMemberResolver{member: m}
+	}
+	return out
+}
+
+// Fan page queries
+
+func (r *Resolver) Page(ctx context.Context, args struct{ Slug string }) (*FanPageResolver, error) {
+	page, err := r.svc.GetPageBySlug(ctx, args.Slug)
+	if err != nil || page == nil {
+		return nil, err
+	}
+	return &FanPageResolver{page: *page, svc: r.svc}, nil
+}
+
+func (r *Resolver) PageFeed(ctx context.Context, args struct {
+	Slug  string
+	After *string
+	Limit *int32
+}) (*PostConnectionResolver, error) {
+	page, err := r.svc.GetPageBySlug(ctx, args.Slug)
+	if err != nil || page == nil {
+		return nil, fmt.Errorf("page not found")
+	}
+	limit := 20
+	if args.Limit != nil {
+		limit = int(*args.Limit)
+	}
+	var after *uuid.UUID
+	if args.After != nil {
+		after = parseOptionalUUID(*args.After)
+	}
+	claims, _ := ClaimsFromContext(ctx)
+	var viewerID *uuid.UUID
+	if claims.UserID != "" {
+		if uid, err := uuid.Parse(claims.UserID); err == nil {
+			viewerID = &uid
+		}
+	}
+	posts, err := r.svc.GetPageFeed(ctx, page.ID, after, limit, viewerID)
+	if err != nil {
+		return nil, err
+	}
+	return newPostConnection(posts, limit, r.svc), nil
+}
+
+func (r *Resolver) PageArticles(ctx context.Context, args struct {
+	Slug  string
+	After *string
+	Limit *int32
+}) (*ArticleConnectionResolver, error) {
+	page, err := r.svc.GetPageBySlug(ctx, args.Slug)
+	if err != nil || page == nil {
+		return nil, fmt.Errorf("page not found")
+	}
+	limit := 20
+	if args.Limit != nil {
+		limit = int(*args.Limit)
+	}
+	var after *uuid.UUID
+	if args.After != nil {
+		after = parseOptionalUUID(*args.After)
+	}
+	articles, err := r.svc.GetPageArticles(ctx, page.ID, after, limit)
+	if err != nil {
+		return nil, err
+	}
+	return newArticleConnection(articles, limit, r.svc), nil
+}
+
+func (r *Resolver) PageMembers(ctx context.Context, args struct{ PageId graphql.ID }) (*PageMemberConnectionResolver, error) {
+	pageID, err := uuid.Parse(string(args.PageId))
+	if err != nil {
+		return nil, fmt.Errorf("invalid page ID")
+	}
+	members, err := r.svc.ListPageMembers(ctx, pageID)
+	if err != nil {
+		return nil, err
+	}
+	return &PageMemberConnectionResolver{members: members}, nil
+}
+
+func (r *Resolver) MyPages(ctx context.Context) ([]*FanPageResolver, error) {
+	claims, ok := ClaimsFromContext(ctx)
+	if !ok || claims.UserID == "" {
+		return []*FanPageResolver{}, nil
+	}
+	uid, err := uuid.Parse(claims.UserID)
+	if err != nil {
+		return nil, err
+	}
+	pages, err := r.svc.ListPagesByMember(ctx, uid)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*FanPageResolver, len(pages))
+	for i, p := range pages {
+		out[i] = &FanPageResolver{page: p, svc: r.svc}
+	}
+	return out, nil
+}
+
+// Fan page mutations
+
+func (r *Resolver) CreatePage(ctx context.Context, args struct {
+	Input struct {
+		Slug        string
+		Name        string
+		Description *string
+		AvatarUrl   *string
+		CoverUrl    *string
+		Category    *string
+	}
+}) (*FanPageResolver, error) {
+	claims, ok := ClaimsFromContext(ctx)
+	if !ok || claims.UserID == "" {
+		return nil, fmt.Errorf("not authenticated")
+	}
+	callerID, err := uuid.Parse(claims.UserID)
+	if err != nil {
+		return nil, err
+	}
+	cat := "general"
+	if args.Input.Category != nil {
+		cat = *args.Input.Category
+	}
+	page, err := r.svc.CreatePage(ctx, callerID, service.CreatePageInput{
+		Slug: args.Input.Slug, Name: args.Input.Name,
+		Description: args.Input.Description, AvatarURL: args.Input.AvatarUrl,
+		CoverURL: args.Input.CoverUrl, Category: cat,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &FanPageResolver{page: page, svc: r.svc}, nil
+}
+
+func (r *Resolver) UpdatePage(ctx context.Context, args struct {
+	PageId graphql.ID
+	Input  struct {
+		Name        *string
+		Description *string
+		AvatarUrl   *string
+		CoverUrl    *string
+		Category    *string
+		ApEnabled   *bool
+	}
+}) (*FanPageResolver, error) {
+	claims, ok := ClaimsFromContext(ctx)
+	if !ok || claims.UserID == "" {
+		return nil, fmt.Errorf("not authenticated")
+	}
+	callerID, err := uuid.Parse(claims.UserID)
+	if err != nil {
+		return nil, err
+	}
+	pageID, err := uuid.Parse(string(args.PageId))
+	if err != nil {
+		return nil, fmt.Errorf("invalid page ID")
+	}
+	page, err := r.svc.UpdatePage(ctx, pageID, callerID, service.UpdatePageInput{
+		Name: args.Input.Name, Description: args.Input.Description,
+		AvatarURL: args.Input.AvatarUrl, CoverURL: args.Input.CoverUrl,
+		Category: args.Input.Category, APEnabled: args.Input.ApEnabled,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &FanPageResolver{page: page, svc: r.svc}, nil
+}
+
+func (r *Resolver) SetPagePolicy(ctx context.Context, args struct {
+	PageId graphql.ID
+	Input  struct {
+		DefaultAccess   *string
+		MinTrustLevel   *int32
+		CommentPolicy   *string
+		MinCommentTrust *int32
+	}
+}) (*FanPageResolver, error) {
+	claims, ok := ClaimsFromContext(ctx)
+	if !ok || claims.UserID == "" {
+		return nil, fmt.Errorf("not authenticated")
+	}
+	callerID, err := uuid.Parse(claims.UserID)
+	if err != nil {
+		return nil, err
+	}
+	pageID, err := uuid.Parse(string(args.PageId))
+	if err != nil {
+		return nil, fmt.Errorf("invalid page ID")
+	}
+	input := service.PagePolicyInput{
+		DefaultAccess:   "public",
+		MinTrustLevel:   0,
+		CommentPolicy:   "public",
+		MinCommentTrust: 0,
+	}
+	if args.Input.DefaultAccess != nil {
+		input.DefaultAccess = *args.Input.DefaultAccess
+	}
+	if args.Input.MinTrustLevel != nil {
+		input.MinTrustLevel = int16(*args.Input.MinTrustLevel)
+	}
+	if args.Input.CommentPolicy != nil {
+		input.CommentPolicy = *args.Input.CommentPolicy
+	}
+	if args.Input.MinCommentTrust != nil {
+		input.MinCommentTrust = int16(*args.Input.MinCommentTrust)
+	}
+	page, err := r.svc.SetPagePolicy(ctx, pageID, callerID, input)
+	if err != nil {
+		return nil, err
+	}
+	return &FanPageResolver{page: page, svc: r.svc}, nil
+}
+
+func (r *Resolver) DeletePage(ctx context.Context, args struct{ PageId graphql.ID }) (bool, error) {
+	claims, ok := ClaimsFromContext(ctx)
+	if !ok || claims.UserID == "" {
+		return false, fmt.Errorf("not authenticated")
+	}
+	callerID, err := uuid.Parse(claims.UserID)
+	if err != nil {
+		return false, err
+	}
+	pageID, err := uuid.Parse(string(args.PageId))
+	if err != nil {
+		return false, fmt.Errorf("invalid page ID")
+	}
+	return true, r.svc.DeletePage(ctx, pageID, callerID)
+}
+
+func (r *Resolver) FollowPage(ctx context.Context, args struct{ PageId graphql.ID }) (bool, error) {
+	claims, ok := ClaimsFromContext(ctx)
+	if !ok || claims.UserID == "" {
+		return false, fmt.Errorf("not authenticated")
+	}
+	userID, err := uuid.Parse(claims.UserID)
+	if err != nil {
+		return false, err
+	}
+	pageID, err := uuid.Parse(string(args.PageId))
+	if err != nil {
+		return false, fmt.Errorf("invalid page ID")
+	}
+	return true, r.svc.FollowPage(ctx, pageID, userID)
+}
+
+func (r *Resolver) UnfollowPage(ctx context.Context, args struct{ PageId graphql.ID }) (bool, error) {
+	claims, ok := ClaimsFromContext(ctx)
+	if !ok || claims.UserID == "" {
+		return false, fmt.Errorf("not authenticated")
+	}
+	userID, err := uuid.Parse(claims.UserID)
+	if err != nil {
+		return false, err
+	}
+	pageID, err := uuid.Parse(string(args.PageId))
+	if err != nil {
+		return false, fmt.Errorf("invalid page ID")
+	}
+	return true, r.svc.UnfollowPage(ctx, pageID, userID)
+}
+
+func (r *Resolver) AddPageMember(ctx context.Context, args struct {
+	PageId graphql.ID
+	UserId graphql.ID
+	Role   string
+}) (bool, error) {
+	claims, ok := ClaimsFromContext(ctx)
+	if !ok || claims.UserID == "" {
+		return false, fmt.Errorf("not authenticated")
+	}
+	callerID, err := uuid.Parse(claims.UserID)
+	if err != nil {
+		return false, err
+	}
+	pageID, err := uuid.Parse(string(args.PageId))
+	if err != nil {
+		return false, fmt.Errorf("invalid page ID")
+	}
+	targetID, err := uuid.Parse(string(args.UserId))
+	if err != nil {
+		return false, fmt.Errorf("invalid user ID")
+	}
+	return true, r.svc.AddPageMember(ctx, pageID, callerID, targetID, strings.ToLower(args.Role))
+}
+
+func (r *Resolver) RemovePageMember(ctx context.Context, args struct {
+	PageId graphql.ID
+	UserId graphql.ID
+}) (bool, error) {
+	claims, ok := ClaimsFromContext(ctx)
+	if !ok || claims.UserID == "" {
+		return false, fmt.Errorf("not authenticated")
+	}
+	callerID, err := uuid.Parse(claims.UserID)
+	if err != nil {
+		return false, err
+	}
+	pageID, err := uuid.Parse(string(args.PageId))
+	if err != nil {
+		return false, fmt.Errorf("invalid page ID")
+	}
+	targetID, err := uuid.Parse(string(args.UserId))
+	if err != nil {
+		return false, fmt.Errorf("invalid user ID")
+	}
+	return true, r.svc.RemovePageMember(ctx, pageID, callerID, targetID)
+}
+
+func (r *Resolver) CreatePagePost(ctx context.Context, args struct {
+	PageId  graphql.ID
+	Content string
+}) (*PostResolver, error) {
+	claims, ok := ClaimsFromContext(ctx)
+	if !ok || claims.UserID == "" {
+		return nil, fmt.Errorf("not authenticated")
+	}
+	authorID, err := uuid.Parse(claims.UserID)
+	if err != nil {
+		return nil, err
+	}
+	pageID, err := uuid.Parse(string(args.PageId))
+	if err != nil {
+		return nil, fmt.Errorf("invalid page ID")
+	}
+	post, err := r.svc.CreatePagePost(ctx, authorID, pageID, args.Content, claims.TrustLevel)
+	if err != nil {
+		return nil, err
+	}
+	return &PostResolver{post: post, svc: r.svc}, nil
+}
+
+func (r *Resolver) CreatePageArticle(ctx context.Context, args struct {
+	PageId       graphql.ID
+	Title        string
+	ContentMd    *string
+	AccessPolicy string
+}) (*ArticleResolver, error) {
+	claims, ok := ClaimsFromContext(ctx)
+	if !ok || claims.UserID == "" {
+		return nil, fmt.Errorf("not authenticated")
+	}
+	authorID, err := uuid.Parse(claims.UserID)
+	if err != nil {
+		return nil, err
+	}
+	pageID, err := uuid.Parse(string(args.PageId))
+	if err != nil {
+		return nil, fmt.Errorf("invalid page ID")
+	}
+	article, err := r.svc.CreatePageArticle(ctx, authorID, pageID, service.CreateArticleInput{
+		Title: args.Title, ContentMd: args.ContentMd, AccessPolicy: args.AccessPolicy,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &ArticleResolver{article: article, svc: r.svc}, nil
 }
 
 // ─── helpers ──────────────────────────────────────────────────────────────────

@@ -76,11 +76,23 @@ export default async function SettingsPage() {
         {/* Board settings */}
         <Link
           href="/settings/board"
-          className="flex items-center justify-between rounded-xl border border-[var(--app-border-2)] bg-[var(--app-surface)] p-5 transition-colors hover:border-[var(--app-border-hover)] hover:bg-[var(--app-surface-hover)]"
+          className="mb-4 flex items-center justify-between rounded-xl border border-[var(--app-border-2)] bg-[var(--app-surface)] p-5 transition-colors hover:border-[var(--app-border-hover)] hover:bg-[var(--app-surface-hover)]"
         >
           <div>
             <h2 className="text-sm font-semibold text-[var(--app-text-bright)]">{t("board")}</h2>
             <p className="mt-0.5 text-xs text-[var(--app-text-muted)]">{t("boardDesc")}</p>
+          </div>
+          <span className="text-[var(--app-text-dim)]">›</span>
+        </Link>
+
+        {/* Fan pages */}
+        <Link
+          href="/settings/pages"
+          className="flex items-center justify-between rounded-xl border border-[var(--app-border-2)] bg-[var(--app-surface)] p-5 transition-colors hover:border-[var(--app-border-hover)] hover:bg-[var(--app-surface-hover)]"
+        >
+          <div>
+            <h2 className="text-sm font-semibold text-[var(--app-text-bright)]">{t("pages")}</h2>
+            <p className="mt-0.5 text-xs text-[var(--app-text-muted)]">{t("pagesDesc")}</p>
           </div>
           <span className="text-[var(--app-text-dim)]">›</span>
         </Link>

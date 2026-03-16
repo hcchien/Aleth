@@ -142,6 +142,66 @@ input ResharePostInput {
   content: String
 }
 
+enum PageRole {
+  admin
+  editor
+}
+
+type FanPage {
+  id: ID!
+  slug: String!
+  name: String!
+  description: String
+  avatarUrl: String
+  coverUrl: String
+  category: String!
+  apEnabled: Boolean!
+  defaultAccess: String!
+  minTrustLevel: Int!
+  commentPolicy: String!
+  minCommentTrust: Int!
+  followerCount: Int!
+  isFollowing: Boolean!
+  createdAt: String!
+  updatedAt: String!
+}
+
+type PageMember {
+  pageId: ID!
+  userId: ID!
+  role: PageRole!
+  joinedAt: String!
+}
+
+type PageMemberConnection {
+  items: [PageMember!]!
+}
+
+input CreatePageInput {
+  slug: String!
+  name: String!
+  description: String
+  avatarUrl: String
+  coverUrl: String
+  category: String
+}
+
+input UpdatePageInput {
+  name: String
+  description: String
+  avatarUrl: String
+  coverUrl: String
+  category: String
+  apEnabled: Boolean
+}
+
+input PagePolicyInput {
+  defaultAccess: String
+  minTrustLevel: Int
+  commentPolicy: String
+  minCommentTrust: Int
+}
+
 type Query {
   post(id: ID!): Post
   posts(after: String, limit: Int): PostConnection!
@@ -154,6 +214,11 @@ type Query {
   boardArticles(ownerID: ID!, after: String, limit: Int): ArticleConnection!
   articleComments(articleId: ID!, limit: Int): [ArticleComment!]!
   commentReplies(commentId: ID!, limit: Int): [ArticleComment!]!
+  page(slug: String!): FanPage
+  pageFeed(slug: String!, after: String, limit: Int): PostConnection!
+  pageArticles(slug: String!, after: String, limit: Int): ArticleConnection!
+  pageMembers(pageId: ID!): PageMemberConnection!
+  myPages: [FanPage!]!
 }
 
 type Mutation {
@@ -175,4 +240,14 @@ type Mutation {
   updateBoardVcPolicy(input: BoardVcPolicyInput!): Board!
   subscribeBoard(ownerID: ID!): Boolean!
   unsubscribeBoard(ownerID: ID!): Boolean!
+  createPage(input: CreatePageInput!): FanPage!
+  updatePage(pageId: ID!, input: UpdatePageInput!): FanPage!
+  setPagePolicy(pageId: ID!, input: PagePolicyInput!): FanPage!
+  deletePage(pageId: ID!): Boolean!
+  followPage(pageId: ID!): Boolean!
+  unfollowPage(pageId: ID!): Boolean!
+  addPageMember(pageId: ID!, userId: ID!, role: PageRole!): Boolean!
+  removePageMember(pageId: ID!, userId: ID!): Boolean!
+  createPagePost(pageId: ID!, content: String!): Post!
+  createPageArticle(pageId: ID!, title: String!, contentMd: String, accessPolicy: String!): Article!
 }

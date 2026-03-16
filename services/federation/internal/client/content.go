@@ -68,3 +68,67 @@ func (c *ContentClient) GetPublicPosts(ctx context.Context, authorID string, lim
 	}
 	return posts, nil
 }
+
+// ContentPage holds the minimal page data needed by the federation service.
+type ContentPage struct {
+	ID        string `json:"id"`
+	Slug      string `json:"slug"`
+	Name      string `json:"name"`
+	APEnabled bool   `json:"apEnabled"`
+}
+
+// GetPageInfo fetches page metadata from the content service internal endpoint.
+// Returns nil, nil if the page is not found (404).
+func (c *ContentClient) GetPageInfo(ctx context.Context, slug string) (*ContentPage, error) {
+	url := c.baseURL + "/internal/pages/" + slug
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build page info request: %w", err)
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("get page info: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("get page info: status %d", resp.StatusCode)
+	}
+	var page ContentPage
+	if err := json.NewDecoder(resp.Body).Decode(&page); err != nil {
+		return nil, fmt.Errorf("decode page info: %w", err)
+	}
+	return &page, nil
+}
+
+// GetPageFeed fetches paginated posts for a page's AP outbox.
+func (c *ContentClient) GetPageFeed(ctx context.Context, slug string, limit int, before *time.Time) ([]ContentPost, error) {
+	endpoint := c.baseURL + "/internal/pages/" + slug + "/feed"
+	if limit > 0 {
+		endpoint += fmt.Sprintf("?limit=%d", limit)
+		if before != nil {
+			endpoint += "&before=" + before.Format(time.RFC3339)
+		}
+	} else if before != nil {
+		endpoint += "?before=" + before.Format(time.RFC3339)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build page feed request: %w", err)
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("get page feed: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("get page feed: status %d", resp.StatusCode)
+	}
+	var posts []ContentPost
+	if err := json.NewDecoder(resp.Body).Decode(&posts); err != nil {
+		return nil, fmt.Errorf("decode page feed: %w", err)
+	}
+	return posts, nil
+}

@@ -7,6 +7,7 @@ import { useTranslations } from "next-intl";
 import { useAuth } from "@/lib/auth-context";
 import { LoginModal } from "./login-modal";
 import { NotificationBell } from "./notification-bell";
+import { TrustBadge } from "./trust-badge";
 
 export function ShellAuthControls() {
   const t = useTranslations("nav");
@@ -38,13 +39,16 @@ export function ShellAuthControls() {
   return (
     <div className="flex items-center gap-3">
       <NotificationBell />
-      <Link
-        href={`/@${user.username}`}
-        className="max-w-40 truncate text-sm text-[var(--app-text-nav)] hover:text-[var(--app-text-heading)]"
-        title={user.displayName ?? user.username}
-      >
-        {user.displayName ?? user.username}
-      </Link>
+      <div className="flex items-center gap-2">
+        <Link
+          href={`/@${user.username}`}
+          className="max-w-40 truncate text-sm text-[var(--app-text-nav)] hover:text-[var(--app-text-heading)]"
+          title={user.displayName ?? user.username}
+        >
+          {user.displayName ?? user.username}
+        </Link>
+        <TrustBadge level={user.trustLevel} />
+      </div>
       <Link
         href="/settings"
         className="rounded-sm border border-[var(--app-border-inner)] px-3 py-1.5 text-sm hover:bg-[var(--app-hover)]"

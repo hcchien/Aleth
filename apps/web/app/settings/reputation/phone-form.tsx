@@ -16,7 +16,7 @@ const VERIFY_OTP = `
     verifyPhoneOTP(phone: $phone, code: $code) {
       accessToken
       refreshToken
-      user { id username displayName email trustLevel }
+      user { id username displayName email trustLevel apEnabled }
     }
   }
 `;
@@ -30,6 +30,7 @@ interface AuthPayload {
     displayName: string | null;
     email: string | null;
     trustLevel: number;
+    apEnabled: boolean;
   };
 }
 

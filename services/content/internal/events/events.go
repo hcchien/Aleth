@@ -34,6 +34,7 @@ type PostCreatedPayload struct {
 	Kind           string  `json:"kind"` // "post" | "note" | "reply" | "reshare"
 	ParentID       *string `json:"parent_id,omitempty"`
 	ParentAuthorID *string `json:"parent_author_id,omitempty"` // set for reply and reshare
+	PageID         *string `json:"page_id,omitempty"`          // set when this post belongs to a fan page
 }
 
 // CommentCreatedPayload is the payload for TypeCommentCreated events.

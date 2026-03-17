@@ -45,6 +45,15 @@ func (s *Store) IncrArticleCommentCount(ctx context.Context, articleID uuid.UUID
 	return err
 }
 
+// IncrPagePostCount atomically increments fan_pages.post_count.
+func (s *Store) IncrPagePostCount(ctx context.Context, pageID uuid.UUID) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE fan_pages SET post_count = post_count + 1 WHERE id = $1`,
+		pageID,
+	)
+	return err
+}
+
 // UpdatePostReactionCounts recomputes posts.reaction_counts JSONB by
 // aggregating the current post_likes rows for the given post.
 //

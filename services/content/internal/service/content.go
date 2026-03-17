@@ -258,11 +258,16 @@ func (s *ContentService) CreatePost(ctx context.Context, authorID uuid.UUID, con
 	if err := s.signPost(ctx, &post); err != nil {
 		return db.Post{}, err
 	}
-	s.publishEvent(ctx, events.TypePostCreated, events.PostCreatedPayload{
+	evPayload := events.PostCreatedPayload{
 		PostID:   post.ID.String(),
 		AuthorID: authorID.String(),
 		Kind:     "post",
-	})
+	}
+	if pageID != nil {
+		pid := pageID.String()
+		evPayload.PageID = &pid
+	}
+	s.publishEvent(ctx, events.TypePostCreated, evPayload)
 	return post, nil
 }
 

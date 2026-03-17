@@ -135,6 +135,7 @@ type FanPage struct {
 	MinCommentTrust   int16
 	RequireVcs        []VcRequirement
 	RequireCommentVcs []VcRequirement
+	PostCount         int32
 	CreatedAt         time.Time
 	UpdatedAt         time.Time
 }
@@ -880,7 +881,7 @@ func (p *Pool) ListCommentReplies(ctx context.Context, parentID uuid.UUID, limit
 
 const fanPageCols = `id, slug, name, description, avatar_url, cover_url, category,
     ap_enabled, default_access, min_trust_level, comment_policy, min_comment_trust,
-    require_vcs, require_comment_vcs, created_at, updated_at`
+    require_vcs, require_comment_vcs, post_count, created_at, updated_at`
 
 func scanFanPage(row pgx.Row) (FanPage, error) {
 	var fp FanPage
@@ -889,7 +890,7 @@ func scanFanPage(row pgx.Row) (FanPage, error) {
 		&fp.ID, &fp.Slug, &fp.Name, &fp.Description, &fp.AvatarURL, &fp.CoverURL,
 		&fp.Category, &fp.APEnabled, &fp.DefaultAccess, &fp.MinTrustLevel,
 		&fp.CommentPolicy, &fp.MinCommentTrust, &rvRaw, &rcRaw,
-		&fp.CreatedAt, &fp.UpdatedAt,
+		&fp.PostCount, &fp.CreatedAt, &fp.UpdatedAt,
 	)
 	if err != nil {
 		return FanPage{}, fmt.Errorf("scan fan page: %w", err)

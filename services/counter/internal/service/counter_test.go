@@ -33,6 +33,10 @@ func (f *fakeStore) UpdatePostReactionCounts(_ context.Context, id uuid.UUID) er
 	f.calls = append(f.calls, call{"update_post_reactions", id})
 	return f.err
 }
+func (f *fakeStore) IncrPagePostCount(_ context.Context, id uuid.UUID) error {
+	f.calls = append(f.calls, call{"incr_page_post", id})
+	return f.err
+}
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 

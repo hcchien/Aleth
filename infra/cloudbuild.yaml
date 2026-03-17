@@ -1,6 +1,6 @@
 steps:
-  # --- Test ---
-  - id: go-test
+  # ── Tests ────────────────────────────────────────────────────────────────
+  - id: go-test-auth
     name: golang:1.23
     entrypoint: go
     args: [test, ./...]
@@ -14,6 +14,20 @@ steps:
     dir: services/content
     env: [CGO_ENABLED=0]
 
+  - id: go-test-federation
+    name: golang:1.23
+    entrypoint: go
+    args: [test, ./...]
+    dir: services/federation
+    env: [CGO_ENABLED=0]
+
+  - id: go-test-gateway
+    name: golang:1.23
+    entrypoint: go
+    args: [test, ./...]
+    dir: services/gateway
+    env: [CGO_ENABLED=0]
+
   - id: next-lint-web
     name: node:22
     entrypoint: pnpm
@@ -24,40 +38,95 @@ steps:
     entrypoint: pnpm
     args: [--filter, admin, lint]
 
-  # --- DB Migration (before deploy) ---
+  # ── DB Migrations (before deploy) ────────────────────────────────────────
   - id: db-migrate-auth
     name: gcr.io/$PROJECT_ID/goose:latest
     args: [up]
     dir: migrations/auth
-    secretEnv: [GOOSE_DBSTRING]
-    waitFor: [go-test]
+    secretEnv: [GOOSE_DBSTRING_AUTH]
+    waitFor: [go-test-auth]
 
   - id: db-migrate-content
     name: gcr.io/$PROJECT_ID/goose:latest
     args: [up]
     dir: migrations/content
-    secretEnv: [GOOSE_DBSTRING]
+    secretEnv: [GOOSE_DBSTRING_CONTENT]
     waitFor: [go-test-content]
 
-  # --- Build images ---
+  - id: db-migrate-federation
+    name: gcr.io/$PROJECT_ID/goose:latest
+    args: [up]
+    dir: migrations/federation
+    secretEnv: [GOOSE_DBSTRING_FEDERATION]
+    waitFor: [go-test-federation]
+
+  # ── Build images ─────────────────────────────────────────────────────────
   - id: build-auth
     name: gcr.io/cloud-builders/docker
     args:
       - build
-      - -f infra/docker/auth.Dockerfile
-      - -t $_REGION-docker.pkg.dev/$PROJECT_ID/aleth/auth:$SHORT_SHA
+      - -f
+      - infra/docker/auth.Dockerfile
+      - -t
+      - $_REGION-docker.pkg.dev/$PROJECT_ID/aleth/auth:$SHORT_SHA
       - .
     waitFor: [db-migrate-auth]
 
-  # --- Push images ---
-  - id: push-auth
+  - id: build-content
     name: gcr.io/cloud-builders/docker
     args:
-      - push
-      - $_REGION-docker.pkg.dev/$PROJECT_ID/aleth/auth:$SHORT_SHA
+      - build
+      - -f
+      - infra/docker/content.Dockerfile
+      - -t
+      - $_REGION-docker.pkg.dev/$PROJECT_ID/aleth/content:$SHORT_SHA
+      - .
+    waitFor: [db-migrate-content]
+
+  - id: build-federation
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - infra/docker/federation.Dockerfile
+      - -t
+      - $_REGION-docker.pkg.dev/$PROJECT_ID/aleth/federation:$SHORT_SHA
+      - .
+    waitFor: [db-migrate-federation]
+
+  - id: build-gateway
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - infra/docker/gateway.Dockerfile
+      - -t
+      - $_REGION-docker.pkg.dev/$PROJECT_ID/aleth/gateway:$SHORT_SHA
+      - .
+    waitFor: [go-test-gateway]
+
+  # ── Push images ───────────────────────────────────────────────────────────
+  - id: push-auth
+    name: gcr.io/cloud-builders/docker
+    args: [push, $_REGION-docker.pkg.dev/$PROJECT_ID/aleth/auth:$SHORT_SHA]
     waitFor: [build-auth]
 
-  # --- Deploy to GKE ---
+  - id: push-content
+    name: gcr.io/cloud-builders/docker
+    args: [push, $_REGION-docker.pkg.dev/$PROJECT_ID/aleth/content:$SHORT_SHA]
+    waitFor: [build-content]
+
+  - id: push-federation
+    name: gcr.io/cloud-builders/docker
+    args: [push, $_REGION-docker.pkg.dev/$PROJECT_ID/aleth/federation:$SHORT_SHA]
+    waitFor: [build-federation]
+
+  - id: push-gateway
+    name: gcr.io/cloud-builders/docker
+    args: [push, $_REGION-docker.pkg.dev/$PROJECT_ID/aleth/gateway:$SHORT_SHA]
+    waitFor: [build-gateway]
+
+  # ── Deploy to GKE ─────────────────────────────────────────────────────────
   - id: deploy-auth
     name: gcr.io/cloud-builders/kubectl
     args:
@@ -70,6 +139,42 @@ steps:
       - CLOUDSDK_CONTAINER_CLUSTER=aleth-$_ENV
     waitFor: [push-auth]
 
+  - id: deploy-content
+    name: gcr.io/cloud-builders/kubectl
+    args:
+      - set
+      - image
+      - deployment/content
+      - content=$_REGION-docker.pkg.dev/$PROJECT_ID/aleth/content:$SHORT_SHA
+    env:
+      - CLOUDSDK_COMPUTE_REGION=$_REGION
+      - CLOUDSDK_CONTAINER_CLUSTER=aleth-$_ENV
+    waitFor: [push-content]
+
+  - id: deploy-federation
+    name: gcr.io/cloud-builders/kubectl
+    args:
+      - set
+      - image
+      - deployment/federation
+      - federation=$_REGION-docker.pkg.dev/$PROJECT_ID/aleth/federation:$SHORT_SHA
+    env:
+      - CLOUDSDK_COMPUTE_REGION=$_REGION
+      - CLOUDSDK_CONTAINER_CLUSTER=aleth-$_ENV
+    waitFor: [push-federation]
+
+  - id: deploy-gateway
+    name: gcr.io/cloud-builders/kubectl
+    args:
+      - set
+      - image
+      - deployment/gateway
+      - gateway=$_REGION-docker.pkg.dev/$PROJECT_ID/aleth/gateway:$SHORT_SHA
+    env:
+      - CLOUDSDK_COMPUTE_REGION=$_REGION
+      - CLOUDSDK_CONTAINER_CLUSTER=aleth-$_ENV
+    waitFor: [push-gateway]
+
 substitutions:
   _REGION: asia-east1
   _ENV: staging
@@ -77,7 +182,11 @@ substitutions:
 availableSecrets:
   secretManager:
     - versionName: projects/$PROJECT_ID/secrets/auth-db-url/versions/latest
-      env: GOOSE_DBSTRING
+      env: GOOSE_DBSTRING_AUTH
+    - versionName: projects/$PROJECT_ID/secrets/content-db-url/versions/latest
+      env: GOOSE_DBSTRING_CONTENT
+    - versionName: projects/$PROJECT_ID/secrets/federation-db-url/versions/latest
+      env: GOOSE_DBSTRING_FEDERATION
 
 options:
   logging: CLOUD_LOGGING_ONLY

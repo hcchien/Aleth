@@ -1024,6 +1024,7 @@ Admin Browser                Admin Gateway              Auth Service (Admin)
   ┌──────────┐        ┌──────────┐         ┌──────────┐
   │Auth Svc  │        │Content   │         │Feed/Reach│
   │(2+ pods) │        │Svc       │         │Svc       │
+  │  :8081   │        │  :8082   │         │  :8083   │
   └─────┬────┘        └─────┬────┘         └─────┬────┘
         │                   │                    │
         └───────────────────┴────────────────────┘
@@ -1036,6 +1037,15 @@ Admin Browser                Admin Gateway              Auth Service (Admin)
         │HA + Read  │  └──────────┘  └──────────────┘
         │ Replica) │
         └──────────┘
+
+Federation Service (exposed to the public internet on its own subdomain, e.g. social.aleth.app):
+
+  Remote AP servers ──HTTPS──▶  Cloudflare  ──▶  Federation Svc (:8084)
+                                                        │
+                                          ┌─────────────┴─────────────┐
+                                          ▼                           ▼
+                                    Auth Svc (:8081)        Content Svc (:8082)
+                                    (actor key lookup)      (posts / page feed)
 ```
 
 ### 11.1 GCP 服務對應
@@ -1073,44 +1083,21 @@ Admin Browser                Admin Gateway              Auth Service (Admin)
 | Merge → `main` | 自動部署到 **staging** 環境 |
 | Git tag `v*.*.*` | 部署到 **production**（需 Cloud Build manual approval） |
 
-**Cloud Build 步驟（`cloudbuild.yaml`）：**
+**Cloud Build 步驟（`infra/cloudbuild.yaml`）：**
 
-```yaml
-steps:
-  # Go services
-  - name: golang:1.23
-    entrypoint: go
-    args: [test, ./...]
-    dir: services
+每個 service 獨立的 test → migrate → build → push → deploy pipeline，可並行執行：
 
-  # Next.js apps
-  - name: node:22
-    entrypoint: pnpm
-    args: [run, lint]
-    dir: apps
+| Service | Dockerfile | Port | DB migration |
+|---------|-----------|------|-------------|
+| auth | `infra/docker/auth.Dockerfile` | 8081 | `migrations/auth` |
+| content | `infra/docker/content.Dockerfile` | 8082 | `migrations/content` |
+| federation | `infra/docker/federation.Dockerfile` | 8084 | `migrations/federation` |
+| gateway | `infra/docker/gateway.Dockerfile` | 8080 | — |
 
-  # DB migration（staging / prod 部署前執行）
-  - name: gcr.io/$PROJECT_ID/goose
-    args: [up]
-    secretEnv: [DB_URL]
-
-  # Build & push Docker images
-  - name: gcr.io/cloud-builders/docker
-    args: [build, -t, "$REGION-docker.pkg.dev/$PROJECT_ID/aleth/$_SERVICE:$SHORT_SHA", .]
-
-  - name: gcr.io/cloud-builders/docker
-    args: [push, "$REGION-docker.pkg.dev/$PROJECT_ID/aleth/$_SERVICE:$SHORT_SHA"]
-
-  # Deploy to GKE
-  - name: gcr.io/cloud-builders/kubectl
-    args: [set, image, deployment/$_SERVICE, $_SERVICE=$IMAGE_URL]
-    env: [CLOUDSDK_COMPUTE_REGION=$_REGION, CLOUDSDK_CONTAINER_CLUSTER=aleth-$_ENV]
-
-availableSecrets:
-  secretManager:
-    - versionName: projects/$PROJECT_ID/secrets/db-url/versions/latest
-      env: DB_URL
-```
+Secret Manager secrets per service:
+- `auth-db-url` → `GOOSE_DBSTRING_AUTH`
+- `content-db-url` → `GOOSE_DBSTRING_CONTENT`
+- `federation-db-url` → `GOOSE_DBSTRING_FEDERATION`
 
 **Secret Manager 整合（GKE Workload Identity）：**
 
@@ -1159,4 +1146,16 @@ os.Setenv("DB_PASSWORD", string(secret.Payload.Data))
 
 - 更多 L2 Stamp 來源（LinkedIn、ENS 等）
 - ActivityPub Federation（Fediverse 互通）
+  - 每位使用者可選擇啟用 AP，帳號成為 `Person` actor（`/@username`）
+  - HTTP Signatures（RSA-2048）、WebFinger、Inbox（Follow/Undo）、Outbox
+  - 新文章建立時 fan-out 給遠端 followers
 - 更多國家 VC 支援
+
+### Phase 5 — 社群版面（Fan Pages）
+
+- 類 Facebook 粉絲專頁：`/p/{slug}` 獨立命名空間，與個版（`/@username`）分離
+- 多管理員模式：`admin`（完整控制）與 `editor`（發文）兩種角色；最後一位 admin 防刪保護
+- 可發短文（Post）與長文（Article）於版面身份下
+- 版面存取策略：`default_access`、`comment_policy`、`min_trust_level`、`min_comment_trust`、VC gate（與個版策略欄位完全對齊）
+- 本地追蹤者（`page_followers`）；追蹤者數量獨立統計
+- ActivityPub 選擇性啟用：版面成為 `Group` actor（`/p/{slug}`）；WebFinger resource `acct:p.{slug}@domain`；遠端追蹤者收到簽署的 `Create` activity

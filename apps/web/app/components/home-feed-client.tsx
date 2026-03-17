@@ -106,12 +106,12 @@ const EXPLORE_FEED_MORE_QUERY = `
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const AVATAR_COLORS = [
-  "bg-[#1e3a5f] text-[#7eb8f7]",
-  "bg-[#1a3d2e] text-[#6ed4a0]",
-  "bg-[#3d2a1a] text-[#f4a84a]",
-  "bg-[#2d1a3d] text-[#c084f5]",
-  "bg-[#1a2d3d] text-[#67c1d8]",
-  "bg-[#3d1a1a] text-[#f48484]",
+  "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
+  "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
+  "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300",
+  "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300",
+  "bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-300",
+  "bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300",
 ];
 
 function avatarColor(username: string): string {
@@ -124,12 +124,12 @@ function LevelBadge({ level }: { level: number }) {
   const icon = level >= 4 ? "♛" : "⬡";
   const cls =
     level >= 4
-      ? "border-amber-500/40 bg-amber-500/15 text-amber-300"
+      ? "border-amber-400/40 bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300"
       : level >= 3
-      ? "border-orange-500/40 bg-orange-500/15 text-orange-300"
+      ? "border-orange-400/40 bg-orange-50 text-orange-700 dark:bg-orange-500/15 dark:text-orange-300"
       : level >= 2
-      ? "border-lime-500/40 bg-lime-500/15 text-lime-300"
-      : "border-cyan-500/40 bg-cyan-500/15 text-cyan-300";
+      ? "border-lime-400/40 bg-lime-50 text-lime-700 dark:bg-lime-500/15 dark:text-lime-300"
+      : "border-sky-400/40 bg-sky-50 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300";
   return (
     <span className={`inline-flex items-center gap-0.5 rounded-full border px-2 py-0.5 text-xs font-medium ${cls}`}>
       <span className="text-[0.6rem] leading-none">{icon}</span>
@@ -233,11 +233,16 @@ export function HomeFeedClient({ initialItems, initialCursor, initialHasMore }: 
 
   return (
     <>
-      <h1 className="mb-6 font-serif text-4xl">{headingText}</h1>
+      <h1
+        className="mb-6 text-3xl font-bold text-[var(--app-text-heading)]"
+        style={{ fontFamily: "var(--font-playfair), 'Playfair Display', Georgia, serif" }}
+      >
+        {headingText}
+      </h1>
 
       <Link
         href="/compose"
-        className="mb-8 block w-full rounded-lg border border-[var(--app-border)] bg-[var(--app-surface-2)] px-4 py-3 text-center text-sm text-[var(--app-text-secondary)] hover:bg-[var(--app-hover-2)] transition-colors"
+        className="mb-8 block w-full rounded-md border border-[var(--app-border)] bg-[var(--app-surface)] px-4 py-3 text-center text-sm text-[var(--app-text-muted)] hover:border-[var(--app-accent-border)] hover:text-[var(--app-accent)] transition-colors"
       >
         {composeText}
       </Link>
@@ -364,9 +369,12 @@ function FeedCard({ item }: { item: FeedItem }) {
       </div>
 
       {/* Title */}
-      <h2 className="mb-1.5 font-serif text-xl font-bold leading-snug text-[var(--app-text-heading)]">
+      <h2
+        className="mb-1.5 text-xl font-bold leading-snug text-[var(--app-text-heading)]"
+        style={{ fontFamily: "var(--font-playfair), 'Playfair Display', Georgia, serif" }}
+      >
         {detailHref ? (
-          <Link href={detailHref} className="hover:text-[var(--app-text)] hover:underline decoration-[var(--app-text-dim)]">
+          <Link href={detailHref} className="hover:text-[var(--app-accent)] transition-colors">
             {title}
           </Link>
         ) : (

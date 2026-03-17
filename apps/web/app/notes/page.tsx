@@ -68,57 +68,51 @@ export default async function NotesPage() {
   return (
     <ForumShell activeTab="notes">
       <div className="mb-8 flex items-center justify-between">
-        <h1 className="font-serif text-4xl">Notes</h1>
-        <Link
-          href="/notes/new"
-          className="rounded-full border border-[#e89246]/50 bg-[#2a1f18] px-4 py-1.5 text-sm text-[#e89246] hover:bg-[#3a2a18] transition-colors"
+        <h1
+          className="font-serif text-3xl font-bold text-[var(--app-text-heading)]"
+          style={{ fontFamily: "var(--font-playfair), 'Playfair Display', Georgia, serif" }}
         >
+          Notes
+        </h1>
+        <Link href="/notes/new" className="btn-outline text-sm">
           ✎ 寫 Note
         </Link>
       </div>
 
       {notes.length === 0 ? (
-        <div className="rounded-xl border border-[#333944] bg-[#0f1117] px-6 py-10 text-center text-sm text-[#aeb4bf]">
+        <div className="rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] px-6 py-12 text-center text-sm text-[var(--app-text-muted)]">
           尚無 Notes。
         </div>
       ) : (
-        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="space-y-0">
           {notes.map((note) => {
             const title = note.noteTitle ?? "（無標題）";
             const summary = note.noteSummary ?? stripHtml(note.content).slice(0, 140);
             const authorName = note.author.displayName ?? note.author.username;
             const mins = readingTime(note.content);
+            const kindLabel = note.kind === "essay" ? "ESSAY"
+              : note.kind === "thread" ? "THREAD"
+              : "NOTE";
 
             return (
               <Link
                 key={note.id}
                 href={`/notes/${note.id}`}
-                className="group flex flex-col rounded-2xl border border-[#333944] bg-[#0f1117] overflow-hidden hover:border-[#4a5060] transition-colors"
+                className="article-row group"
               >
-                {note.noteCover && (
-                  <div className="aspect-video overflow-hidden">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={note.noteCover}
-                      alt={title}
-                      className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-300"
-                    />
-                  </div>
+                <p className="article-row__rubric rubric">{kindLabel}</p>
+                <h2 className="article-row__title">{title}</h2>
+                {summary && (
+                  <p className="mt-1 text-sm text-[var(--app-text-secondary)] line-clamp-2 leading-relaxed">
+                    {summary}
+                  </p>
                 )}
-                <div className="flex flex-col gap-2 p-5 flex-1">
-                  <h2 className="font-serif text-lg leading-snug text-[#f3f5f9] group-hover:text-white line-clamp-2">
-                    {title}
-                  </h2>
-                  {summary && (
-                    <p className="text-sm text-[#9ea4b0] line-clamp-3 flex-1">{summary}</p>
-                  )}
-                  <div className="mt-2 flex items-center gap-2 text-xs text-[#6b7280]">
-                    <span>{authorName}</span>
-                    <span>·</span>
-                    <span>{mins} 分鐘</span>
-                    <span>·</span>
-                    <span>{formatDate(note.createdAt)}</span>
-                  </div>
+                <div className="article-row__meta mt-2">
+                  <span>{authorName}</span>
+                  <span>·</span>
+                  <span>{mins} 分鐘閱讀</span>
+                  <span>·</span>
+                  <span>{formatDate(note.createdAt)}</span>
                 </div>
               </Link>
             );

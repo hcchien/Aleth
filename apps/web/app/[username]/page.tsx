@@ -222,7 +222,10 @@ export default async function UserProfilePage({ params }: PageProps) {
       {/* Series section */}
       {board.series.length > 0 && (
         <div className="mb-8">
-          <h2 className="mb-3 font-serif text-xl text-[var(--app-text-bright)]">
+          <h2
+            className="mb-3 font-serif text-xl font-bold text-[var(--app-text-heading)]"
+            style={{ fontFamily: "var(--font-playfair), 'Playfair Display', Georgia, serif" }}
+          >
             {tSeries("seriesSection")}
           </h2>
           <div className="grid gap-3 sm:grid-cols-2">
@@ -251,9 +254,12 @@ export default async function UserProfilePage({ params }: PageProps) {
 
       {/* Articles section */}
       <div className="mb-4 flex items-center justify-between">
-        <h2 className="font-serif text-xl text-[var(--app-text-bright)]">
+        <h2
+          className="font-serif text-xl font-bold text-[var(--app-text-heading)]"
+          style={{ fontFamily: "var(--font-playfair), 'Playfair Display', Georgia, serif" }}
+        >
           {t("articles")}
-          <span className="ml-2 font-mono text-sm text-[var(--app-text-muted)]">
+          <span className="ml-2 font-sans text-sm font-normal text-[var(--app-text-muted)]">
             ({enrichedArticles.length}{articles.hasMore ? "+" : ""})
           </span>
         </h2>
@@ -264,7 +270,7 @@ export default async function UserProfilePage({ params }: PageProps) {
           {t("noArticles")}
         </div>
       ) : (
-        <div className="space-y-4">
+        <div>
           {enrichedArticles.map((article) => (
             <ArticleCard key={article.id} article={article} />
           ))}

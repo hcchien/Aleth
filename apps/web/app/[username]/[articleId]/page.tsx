@@ -76,8 +76,6 @@ function prettyDate(dateInput: string | null, fallback: string) {
     year: "numeric",
     month: "long",
     day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
   });
 }
 
@@ -140,60 +138,84 @@ export default async function ArticlePage({ params }: PageProps) {
 
   const html = article.contentMd ? renderMarkdown(article.contentMd) : null;
   const displayName = article.author.displayName ?? article.author.username;
-  const displayTime = prettyDate(article.publishedAt, "2026年2月21日 下午09:22");
+  const displayTime = prettyDate(article.publishedAt, "");
   const authorSeed = (displayName[0] || "A").toUpperCase();
 
   return (
     <ForumShell>
-      <Link href="/" className="mb-5 inline-flex items-center gap-2 text-base text-[#d3d8e2] hover:text-white">
-        ←　返回列表
+      {/* Back link */}
+      <Link
+        href="/"
+        className="mb-6 inline-flex items-center gap-1.5 text-sm text-[var(--app-text-muted)] hover:text-[var(--app-accent)] transition-colors"
+      >
+        ← 返回列表
       </Link>
 
-      <article className="rounded-2xl border border-[#333944] bg-gradient-to-b from-[#20232d] to-[#171a22] p-7">
-        <div className="mb-3 flex items-start justify-between">
-          <h1 className="font-serif text-4xl text-[#f1f3f8]">{article.title}</h1>
-          <SignatureBadge info={article.signatureInfo} />
-        </div>
+      <article className="mx-auto max-w-2xl">
+        {/* Board rubric */}
+        <p className="rubric mb-3">
+          <Link href={`/@${ownerUsername}`} className="hover:opacity-80 transition-opacity">
+            {article.board.name}
+          </Link>
+        </p>
 
-        <div className="mb-6 flex flex-wrap items-center gap-4">
-          <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[#f09a45] font-semibold text-black">
+        {/* Title */}
+        <h1
+          className="mb-6 font-serif text-4xl font-bold leading-tight text-[var(--app-text-heading)]"
+          style={{ fontFamily: "var(--font-playfair), 'Playfair Display', Georgia, serif" }}
+        >
+          {article.title}
+        </h1>
+
+        {/* Byline */}
+        <div className="mb-8 flex flex-wrap items-center gap-4 border-b border-[var(--app-border)] pb-6">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--app-accent-bg)] text-base font-semibold text-[var(--app-accent)]">
             {authorSeed}
-          </span>
+          </div>
           <div>
-            <Link href={`/@${article.author.username}`} className="text-xl font-semibold hover:text-white">
+            <Link
+              href={`/@${article.author.username}`}
+              className="text-sm font-semibold text-[var(--app-text-heading)] hover:text-[var(--app-accent)] transition-colors"
+            >
               {displayName}
             </Link>
-            <p className="text-sm text-[#b9bfcb]">@{article.author.username}</p>
+            <p className="text-xs text-[var(--app-text-muted)]">@{article.author.username}</p>
           </div>
-          <span className="text-[#c7ccd6]">◷ {displayTime}</span>
-          <Link href={`/@${ownerUsername}`} className="text-sm text-[#c7ccd6] hover:text-white">
-            來自 {article.board.name}
-          </Link>
+          {displayTime && (
+            <span className="text-sm text-[var(--app-text-muted)]">{displayTime}</span>
+          )}
+          <div className="ml-auto">
+            <SignatureBadge info={article.signatureInfo} />
+          </div>
         </div>
 
+        {/* Body */}
         {html ? (
           <div
-            className="markdown-body border-b border-[#2f3540] pb-6"
+            className="markdown-body drop-cap"
             dangerouslySetInnerHTML={{ __html: html }}
           />
         ) : (
-          <p className="border-b border-[#2f3540] pb-6 text-base text-[#d5d9e2]">尚未提供內容。</p>
+          <p className="text-base text-[var(--app-text-muted)]">尚未提供內容。</p>
         )}
       </article>
 
-      <section className="mt-8">
-        <h2 className="mb-4 font-serif text-3xl">
+      {/* Comments */}
+      <section className="mx-auto mt-12 max-w-2xl border-t border-[var(--app-border)] pt-8">
+        <h2
+          className="mb-5 font-serif text-2xl font-bold text-[var(--app-text-heading)]"
+          style={{ fontFamily: "var(--font-playfair), 'Playfair Display', Georgia, serif" }}
+        >
           回覆 ({comments.filter((c) => !c.parentId).length})
         </h2>
         {commentsLoadError && (
-          <div className="mb-3 rounded-md border border-[#3b3030] bg-[#2a1f1f] p-3 text-sm text-[#f0c0c0]">
+          <div className="mb-4 rounded-md border border-[var(--app-accent-border)] bg-[var(--app-accent-bg)] p-3 text-sm text-[var(--app-accent)]">
             留言資料暫時讀取失敗，請稍後重整。
           </div>
         )}
         <CommentThread comments={comments as Comment[]} articleId={article.id} />
+        <ArticleCommentForm articleId={article.id} />
       </section>
-
-      <ArticleCommentForm articleId={article.id} />
     </ForumShell>
   );
 }

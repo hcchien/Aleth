@@ -49,6 +49,11 @@ type fakeContentStore struct {
 	listArticleCommentsFn    func(context.Context, uuid.UUID, int) ([]db.ArticleComment, error)
 	listCommentRepliesFn     func(context.Context, uuid.UUID, int) ([]db.ArticleComment, error)
 	updateBoardVcPolicyFn    func(context.Context, db.UpdateBoardVcPolicyParams) (db.Board, error)
+
+	// mutable state for series tests
+	series  []db.Series
+	article db.Article
+	board   db.Board
 }
 
 func newFakeContentStore() *fakeContentStore {
@@ -284,6 +289,61 @@ func (f *fakeContentStore) ListPageArticles(ctx context.Context, params db.ListP
 }
 func (f *fakeContentStore) ListPublicPostsByPage(ctx context.Context, pageID uuid.UUID, limit int, before *time.Time) ([]db.Post, error) {
 	return nil, nil
+}
+
+// Series stubs
+func (f *fakeContentStore) CreateSeries(ctx context.Context, boardID uuid.UUID, title string, description *string) (db.Series, error) {
+	s := db.Series{ID: uuid.New(), BoardID: boardID, Title: title, Description: description}
+	f.series = append(f.series, s)
+	return s, nil
+}
+func (f *fakeContentStore) GetSeriesByID(ctx context.Context, id uuid.UUID) (db.Series, error) {
+	for _, s := range f.series {
+		if s.ID == id {
+			return s, nil
+		}
+	}
+	return db.Series{}, pgx.ErrNoRows
+}
+func (f *fakeContentStore) ListSeriesByBoard(ctx context.Context, boardID uuid.UUID) ([]db.Series, error) {
+	var out []db.Series
+	for _, s := range f.series {
+		if s.BoardID == boardID {
+			out = append(out, s)
+		}
+	}
+	return out, nil
+}
+func (f *fakeContentStore) UpdateSeries(ctx context.Context, id uuid.UUID, title string, description *string) (db.Series, error) {
+	for i, s := range f.series {
+		if s.ID == id {
+			f.series[i].Title = title
+			f.series[i].Description = description
+			return f.series[i], nil
+		}
+	}
+	return db.Series{}, pgx.ErrNoRows
+}
+func (f *fakeContentStore) DeleteSeries(ctx context.Context, id uuid.UUID) error {
+	for i, s := range f.series {
+		if s.ID == id {
+			f.series = append(f.series[:i], f.series[i+1:]...)
+			return nil
+		}
+	}
+	return nil
+}
+func (f *fakeContentStore) SetArticleSeries(ctx context.Context, articleID uuid.UUID, seriesID *uuid.UUID) (db.Article, error) {
+	a := f.article
+	a.SeriesID = seriesID
+	f.article = a
+	return a, nil
+}
+func (f *fakeContentStore) ListSeriesArticles(ctx context.Context, seriesID uuid.UUID) ([]db.Article, error) {
+	return nil, nil
+}
+func (f *fakeContentStore) CountSeriesArticles(ctx context.Context, seriesID uuid.UUID) (int32, error) {
+	return 0, nil
 }
 
 func TestBoardAndPostFlows(t *testing.T) {
@@ -1385,5 +1445,190 @@ func TestReactPost_UnsupportedEmotion_NoEventPublished(t *testing.T) {
 	}
 	if evts := pub.all(); len(evts) != 0 {
 		t.Errorf("expected no events for unsupported emotion, got %d", len(evts))
+	}
+}
+
+// ─── Series tests ─────────────────────────────────────────────────────────────
+
+func newSeriesStore(ownerID, boardID uuid.UUID) *fakeContentStore {
+	st := newFakeContentStore()
+	board := db.Board{ID: boardID, OwnerID: ownerID, Name: "My Board", DefaultAccess: "public"}
+	st.board = board
+	st.getBoardByIDFn = func(_ context.Context, id uuid.UUID) (db.Board, error) {
+		if id == boardID {
+			return board, nil
+		}
+		return db.Board{}, pgx.ErrNoRows
+	}
+	st.getBoardByOwnerIDFn = func(_ context.Context, id uuid.UUID) (db.Board, error) {
+		if id == ownerID {
+			return board, nil
+		}
+		return db.Board{}, pgx.ErrNoRows
+	}
+	return st
+}
+
+func TestCreateSeries_ValidTitle(t *testing.T) {
+	ownerID := uuid.New()
+	boardID := uuid.New()
+	st := newSeriesStore(ownerID, boardID)
+	svc := NewContentService(st)
+	ctx := context.Background()
+
+	desc := "A test series"
+	series, err := svc.CreateSeries(ctx, ownerID, boardID, "My Series", &desc)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if series.Title != "My Series" {
+		t.Errorf("got title %q, want %q", series.Title, "My Series")
+	}
+	if series.BoardID != boardID {
+		t.Errorf("got board_id %s, want %s", series.BoardID, boardID)
+	}
+}
+
+func TestCreateSeries_EmptyTitle(t *testing.T) {
+	ownerID := uuid.New()
+	boardID := uuid.New()
+	st := newSeriesStore(ownerID, boardID)
+	svc := NewContentService(st)
+
+	_, err := svc.CreateSeries(context.Background(), ownerID, boardID, "   ", nil)
+	if err == nil {
+		t.Fatal("expected error for empty title")
+	}
+}
+
+func TestCreateSeries_NotOwner(t *testing.T) {
+	ownerID := uuid.New()
+	boardID := uuid.New()
+	st := newSeriesStore(ownerID, boardID)
+	svc := NewContentService(st)
+
+	_, err := svc.CreateSeries(context.Background(), uuid.New(), boardID, "Series", nil)
+	if err == nil {
+		t.Fatal("expected error for non-owner")
+	}
+}
+
+func TestUpdateSeries_OwnerCanUpdate(t *testing.T) {
+	ownerID := uuid.New()
+	boardID := uuid.New()
+	st := newSeriesStore(ownerID, boardID)
+	svc := NewContentService(st)
+	ctx := context.Background()
+
+	series, _ := svc.CreateSeries(ctx, ownerID, boardID, "Original", nil)
+	desc := "Updated desc"
+	updated, err := svc.UpdateSeries(ctx, ownerID, series.ID, "Updated", &desc)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if updated.Title != "Updated" {
+		t.Errorf("got title %q, want %q", updated.Title, "Updated")
+	}
+}
+
+func TestUpdateSeries_NotOwner(t *testing.T) {
+	ownerID := uuid.New()
+	boardID := uuid.New()
+	st := newSeriesStore(ownerID, boardID)
+	svc := NewContentService(st)
+	ctx := context.Background()
+
+	series, _ := svc.CreateSeries(ctx, ownerID, boardID, "Series", nil)
+	_, err := svc.UpdateSeries(ctx, uuid.New(), series.ID, "Hacked", nil)
+	if err == nil {
+		t.Fatal("expected error for non-owner")
+	}
+}
+
+func TestDeleteSeries_OwnerCanDelete(t *testing.T) {
+	ownerID := uuid.New()
+	boardID := uuid.New()
+	st := newSeriesStore(ownerID, boardID)
+	svc := NewContentService(st)
+	ctx := context.Background()
+
+	series, _ := svc.CreateSeries(ctx, ownerID, boardID, "ToDelete", nil)
+	if err := svc.DeleteSeries(ctx, ownerID, series.ID); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	all, _ := svc.ListSeriesByBoard(ctx, boardID)
+	for _, s := range all {
+		if s.ID == series.ID {
+			t.Error("series still present after delete")
+		}
+	}
+}
+
+func TestAddArticleToSeries_SameBoard(t *testing.T) {
+	ownerID := uuid.New()
+	boardID := uuid.New()
+	st := newSeriesStore(ownerID, boardID)
+	svc := NewContentService(st)
+	ctx := context.Background()
+
+	series, _ := svc.CreateSeries(ctx, ownerID, boardID, "Series", nil)
+
+	articleID := uuid.New()
+	st.article = db.Article{ID: articleID, BoardID: boardID, AuthorID: ownerID, Status: "draft"}
+	st.getArticleByIDFn = func(_ context.Context, id uuid.UUID) (db.Article, error) {
+		return st.article, nil
+	}
+
+	updated, err := svc.AddArticleToSeries(ctx, ownerID, articleID, series.ID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if updated.SeriesID == nil || *updated.SeriesID != series.ID {
+		t.Error("article series_id not set correctly")
+	}
+}
+
+func TestAddArticleToSeries_DifferentBoard(t *testing.T) {
+	ownerID := uuid.New()
+	boardID := uuid.New()
+	st := newSeriesStore(ownerID, boardID)
+	svc := NewContentService(st)
+	ctx := context.Background()
+
+	series, _ := svc.CreateSeries(ctx, ownerID, boardID, "Series", nil)
+
+	otherBoard := uuid.New()
+	articleID := uuid.New()
+	st.article = db.Article{ID: articleID, BoardID: otherBoard, AuthorID: ownerID, Status: "draft"}
+	st.getArticleByIDFn = func(_ context.Context, id uuid.UUID) (db.Article, error) {
+		return st.article, nil
+	}
+
+	_, err := svc.AddArticleToSeries(ctx, ownerID, articleID, series.ID)
+	if err == nil {
+		t.Fatal("expected error: article and series in different boards")
+	}
+}
+
+func TestRemoveArticleFromSeries(t *testing.T) {
+	ownerID := uuid.New()
+	boardID := uuid.New()
+	st := newSeriesStore(ownerID, boardID)
+	svc := NewContentService(st)
+	ctx := context.Background()
+
+	series, _ := svc.CreateSeries(ctx, ownerID, boardID, "Series", nil)
+	articleID := uuid.New()
+	st.article = db.Article{ID: articleID, BoardID: boardID, AuthorID: ownerID, SeriesID: &series.ID}
+	st.getArticleByIDFn = func(_ context.Context, id uuid.UUID) (db.Article, error) {
+		return st.article, nil
+	}
+
+	updated, err := svc.RemoveArticleFromSeries(ctx, ownerID, articleID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if updated.SeriesID != nil {
+		t.Error("expected series_id to be nil after removal")
 	}
 }

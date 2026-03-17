@@ -52,6 +52,7 @@ type Article {
   id: ID!
   boardId: ID!
   authorId: ID!
+  seriesId: ID
   title: String!
   slug: String!
   contentMd: String
@@ -81,6 +82,7 @@ type Board {
   requireCommentVcs: [VcRequirement!]!
   subscriberCount: Int!
   isSubscribed: Boolean!
+  series: [Series!]!
   createdAt: String!
 }
 
@@ -140,6 +142,28 @@ input CreateNoteInput {
 
 input ResharePostInput {
   content: String
+}
+
+type Series {
+  id: ID!
+  boardId: ID!
+  title: String!
+  description: String
+  articleCount: Int!
+  articles: [Article!]!
+  createdAt: String!
+  updatedAt: String!
+}
+
+input CreateSeriesInput {
+  boardId: ID!
+  title: String!
+  description: String
+}
+
+input UpdateSeriesInput {
+  title: String!
+  description: String
 }
 
 enum PageRole {
@@ -219,6 +243,8 @@ type Query {
   pageArticles(slug: String!, after: String, limit: Int): ArticleConnection!
   pageMembers(pageId: ID!): PageMemberConnection!
   myPages: [FanPage!]!
+  series(id: ID!): Series
+  boardSeries(boardId: ID!): [Series!]!
 }
 
 type Mutation {
@@ -250,4 +276,9 @@ type Mutation {
   removePageMember(pageId: ID!, userId: ID!): Boolean!
   createPagePost(pageId: ID!, content: String!): Post!
   createPageArticle(pageId: ID!, title: String!, contentMd: String, accessPolicy: String!): Article!
+  createSeries(input: CreateSeriesInput!): Series!
+  updateSeries(id: ID!, input: UpdateSeriesInput!): Series!
+  deleteSeries(id: ID!): Boolean!
+  addArticleToSeries(articleId: ID!, seriesId: ID!): Article!
+  removeArticleFromSeries(articleId: ID!): Article!
 }

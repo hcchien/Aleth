@@ -82,6 +82,16 @@ type contentStore interface {
 	ListPagePosts(ctx context.Context, params db.ListPagePostsParams) ([]db.Post, error)
 	ListPageArticles(ctx context.Context, params db.ListPageArticlesParams) ([]db.Article, error)
 	ListPublicPostsByPage(ctx context.Context, pageID uuid.UUID, limit int, before *time.Time) ([]db.Post, error)
+
+	// Series
+	CreateSeries(ctx context.Context, boardID uuid.UUID, title string, description *string) (db.Series, error)
+	GetSeriesByID(ctx context.Context, id uuid.UUID) (db.Series, error)
+	ListSeriesByBoard(ctx context.Context, boardID uuid.UUID) ([]db.Series, error)
+	UpdateSeries(ctx context.Context, id uuid.UUID, title string, description *string) (db.Series, error)
+	DeleteSeries(ctx context.Context, id uuid.UUID) error
+	SetArticleSeries(ctx context.Context, articleID uuid.UUID, seriesID *uuid.UUID) (db.Article, error)
+	ListSeriesArticles(ctx context.Context, seriesID uuid.UUID) ([]db.Article, error)
+	CountSeriesArticles(ctx context.Context, seriesID uuid.UUID) (int32, error)
 }
 
 func NewContentService(store contentStore) *ContentService {
@@ -1013,6 +1023,135 @@ func (s *ContentService) requirePageAdmin(ctx context.Context, pageID, callerID 
 		return fmt.Errorf("not authorized: must be page admin")
 	}
 	return nil
+}
+
+// ─── Series ───────────────────────────────────────────────────────────────────
+
+// requireBoardOwner checks that callerID owns the board that owns the series.
+// Returns the board or an error.
+func (s *ContentService) requireBoardOwnerBySeries(ctx context.Context, seriesID, callerID uuid.UUID) (db.Series, error) {
+	series, err := s.db.GetSeriesByID(ctx, seriesID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return db.Series{}, fmt.Errorf("series not found")
+		}
+		return db.Series{}, fmt.Errorf("get series: %w", err)
+	}
+	board, err := s.db.GetBoardByID(ctx, series.BoardID)
+	if err != nil {
+		return db.Series{}, fmt.Errorf("get board: %w", err)
+	}
+	if board.OwnerID != callerID {
+		return db.Series{}, fmt.Errorf("not authorized: must be board owner")
+	}
+	return series, nil
+}
+
+// CreateSeries creates a new article series within a board owned by callerID.
+func (s *ContentService) CreateSeries(ctx context.Context, callerID, boardID uuid.UUID, title string, description *string) (db.Series, error) {
+	board, err := s.db.GetBoardByID(ctx, boardID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return db.Series{}, fmt.Errorf("board not found")
+		}
+		return db.Series{}, fmt.Errorf("get board: %w", err)
+	}
+	if board.OwnerID != callerID {
+		return db.Series{}, fmt.Errorf("not authorized: must be board owner")
+	}
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return db.Series{}, fmt.Errorf("series title cannot be empty")
+	}
+	return s.db.CreateSeries(ctx, boardID, title, description)
+}
+
+// GetSeriesByID returns a series by ID.
+func (s *ContentService) GetSeriesByID(ctx context.Context, id uuid.UUID) (*db.Series, error) {
+	series, err := s.db.GetSeriesByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get series: %w", err)
+	}
+	return &series, nil
+}
+
+// ListSeriesByBoard returns all series for a board.
+func (s *ContentService) ListSeriesByBoard(ctx context.Context, boardID uuid.UUID) ([]db.Series, error) {
+	return s.db.ListSeriesByBoard(ctx, boardID)
+}
+
+// UpdateSeries updates the title and/or description of a series. callerID must own the board.
+func (s *ContentService) UpdateSeries(ctx context.Context, callerID, seriesID uuid.UUID, title string, description *string) (db.Series, error) {
+	if _, err := s.requireBoardOwnerBySeries(ctx, seriesID, callerID); err != nil {
+		return db.Series{}, err
+	}
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return db.Series{}, fmt.Errorf("series title cannot be empty")
+	}
+	return s.db.UpdateSeries(ctx, seriesID, title, description)
+}
+
+// DeleteSeries deletes a series. callerID must own the board. Articles in the
+// series have their series_id set to NULL (ON DELETE SET NULL in migration).
+func (s *ContentService) DeleteSeries(ctx context.Context, callerID, seriesID uuid.UUID) error {
+	if _, err := s.requireBoardOwnerBySeries(ctx, seriesID, callerID); err != nil {
+		return err
+	}
+	return s.db.DeleteSeries(ctx, seriesID)
+}
+
+// AddArticleToSeries assigns an article to a series. callerID must own the board
+// that contains both the article and the series.
+func (s *ContentService) AddArticleToSeries(ctx context.Context, callerID, articleID, seriesID uuid.UUID) (db.Article, error) {
+	series, err := s.requireBoardOwnerBySeries(ctx, seriesID, callerID)
+	if err != nil {
+		return db.Article{}, err
+	}
+	article, err := s.db.GetArticleByID(ctx, articleID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return db.Article{}, fmt.Errorf("article not found")
+		}
+		return db.Article{}, fmt.Errorf("get article: %w", err)
+	}
+	if article.BoardID != series.BoardID {
+		return db.Article{}, fmt.Errorf("article and series must belong to the same board")
+	}
+	return s.db.SetArticleSeries(ctx, articleID, &seriesID)
+}
+
+// RemoveArticleFromSeries removes an article from its series. callerID must own
+// the article's board.
+func (s *ContentService) RemoveArticleFromSeries(ctx context.Context, callerID, articleID uuid.UUID) (db.Article, error) {
+	article, err := s.db.GetArticleByID(ctx, articleID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return db.Article{}, fmt.Errorf("article not found")
+		}
+		return db.Article{}, fmt.Errorf("get article: %w", err)
+	}
+	board, err := s.db.GetBoardByID(ctx, article.BoardID)
+	if err != nil {
+		return db.Article{}, fmt.Errorf("get board: %w", err)
+	}
+	if board.OwnerID != callerID {
+		return db.Article{}, fmt.Errorf("not authorized: must be board owner")
+	}
+	return s.db.SetArticleSeries(ctx, articleID, nil)
+}
+
+// ListSeriesArticles returns all articles in a series.
+func (s *ContentService) ListSeriesArticles(ctx context.Context, seriesID uuid.UUID) ([]db.Article, error) {
+	return s.db.ListSeriesArticles(ctx, seriesID)
+}
+
+// CountSeriesArticles returns the number of articles in a series.
+func (s *ContentService) CountSeriesArticles(ctx context.Context, seriesID uuid.UUID) (int32, error) {
+	return s.db.CountSeriesArticles(ctx, seriesID)
 }
 
 // ─── helpers ──────────────────────────────────────────────────────────────────

@@ -172,7 +172,9 @@
     "federationSaving": "Saving…",
     "federationSaved": "✓ Saved",
     "pages": "Fan pages",
-    "pagesDesc": "Create and manage fan pages"
+    "pagesDesc": "Create and manage fan pages",
+    "seriesTitle": "Article series",
+    "seriesDesc": "Organize your articles into series"
   },
   "fanPage": {
     "follow": "Follow",
@@ -234,5 +236,22 @@
     "codeSent": "Code sent! Enter the 6-digit code below.",
     "phoneVerified": "✓ Phone verified — reputation updated.",
     "backToSettings": "← Back to settings"
+  },
+  "series": {
+    "series": "Series",
+    "noSeries": "No series yet.",
+    "createSeries": "Create series",
+    "seriesTitle": "Title",
+    "seriesDescription": "Description (optional)",
+    "saveSeries": "Save",
+    "editSeries": "Edit",
+    "deleteSeries": "Delete",
+    "deleteSeriesConfirm": "Delete this series? Articles will be unlinked.",
+    "articleCount": "{count} article(s)",
+    "manageSeries": "Manage series",
+    "addToSeries": "Add to series",
+    "removeFromSeries": "Remove from series",
+    "seriesSection": "Article series",
+    "seriesEmpty": "No articles in this series yet."
   }
 }

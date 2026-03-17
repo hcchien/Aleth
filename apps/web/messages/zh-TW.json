@@ -172,7 +172,9 @@
     "federationSaving": "儲存中…",
     "federationSaved": "✓ 已儲存",
     "pages": "粉絲專頁",
-    "pagesDesc": "建立與管理粉絲專頁"
+    "pagesDesc": "建立與管理粉絲專頁",
+    "seriesTitle": "文章系列",
+    "seriesDesc": "將您的文章整理成系列"
   },
   "fanPage": {
     "follow": "追蹤",
@@ -234,5 +236,22 @@
     "codeSent": "驗證碼已發送！請在下方輸入 6 位數驗證碼。",
     "phoneVerified": "✓ 手機已驗證 — 信譽已更新。",
     "backToSettings": "← 返回設定"
+  },
+  "series": {
+    "series": "系列",
+    "noSeries": "尚無系列。",
+    "createSeries": "建立系列",
+    "seriesTitle": "標題",
+    "seriesDescription": "說明（選填）",
+    "saveSeries": "儲存",
+    "editSeries": "編輯",
+    "deleteSeries": "刪除",
+    "deleteSeriesConfirm": "刪除此系列？文章將被解除關聯。",
+    "articleCount": "{count} 篇文章",
+    "manageSeries": "管理系列",
+    "addToSeries": "加入系列",
+    "removeFromSeries": "從系列移除",
+    "seriesSection": "文章系列",
+    "seriesEmpty": "此系列尚無文章。"
   }
 }

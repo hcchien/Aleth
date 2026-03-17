@@ -70,6 +70,7 @@ type ContentArticle struct {
 	ID            string               `json:"id"`
 	BoardID       string               `json:"boardId"`
 	AuthorID      string               `json:"authorId"`
+	SeriesID      *string              `json:"seriesId"`
 	Title         string               `json:"title"`
 	Slug          string               `json:"slug"`
 	ContentMd     *string              `json:"contentMd"`
@@ -79,6 +80,18 @@ type ContentArticle struct {
 	CreatedAt     string               `json:"createdAt"`
 	UpdatedAt     string               `json:"updatedAt"`
 	SignatureInfo ContentSignatureInfo `json:"signatureInfo"`
+}
+
+// ContentSeries is a series as returned by the Content service.
+type ContentSeries struct {
+	ID           string           `json:"id"`
+	BoardID      string           `json:"boardId"`
+	Title        string           `json:"title"`
+	Description  *string          `json:"description"`
+	ArticleCount int32            `json:"articleCount"`
+	Articles     []ContentArticle `json:"articles"`
+	CreatedAt    string           `json:"createdAt"`
+	UpdatedAt    string           `json:"updatedAt"`
 }
 
 type ContentSignatureInfo struct {

@@ -172,7 +172,9 @@
     "federationSaving": "저장 중…",
     "federationSaved": "✓ 저장됨",
     "pages": "팬 페이지",
-    "pagesDesc": "팬 페이지 만들기 및 관리"
+    "pagesDesc": "팬 페이지 만들기 및 관리",
+    "seriesTitle": "기사 시리즈",
+    "seriesDesc": "기사를 시리즈로 정리하기"
   },
   "fanPage": {
     "follow": "팔로우",
@@ -234,5 +236,22 @@
     "codeSent": "코드가 전송되었습니다! 아래에 6자리 코드를 입력하세요.",
     "phoneVerified": "✓ 전화번호 인증 완료 — 평판이 업데이트되었습니다.",
     "backToSettings": "← 설정으로 돌아가기"
+  },
+  "series": {
+    "series": "시리즈",
+    "noSeries": "시리즈가 없습니다.",
+    "createSeries": "시리즈 만들기",
+    "seriesTitle": "제목",
+    "seriesDescription": "설명 (선택사항)",
+    "saveSeries": "저장",
+    "editSeries": "편집",
+    "deleteSeries": "삭제",
+    "deleteSeriesConfirm": "이 시리즈를 삭제하시겠습니까? 기사의 링크가 해제됩니다.",
+    "articleCount": "기사 {count}개",
+    "manageSeries": "시리즈 관리",
+    "addToSeries": "시리즈에 추가",
+    "removeFromSeries": "시리즈에서 제거",
+    "seriesSection": "기사 시리즈",
+    "seriesEmpty": "이 시리즈에 아직 기사가 없습니다."
   }
 }

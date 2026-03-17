@@ -172,7 +172,9 @@
     "federationSaving": "Enregistrement…",
     "federationSaved": "✓ Enregistré",
     "pages": "Fan pages",
-    "pagesDesc": "Créer et gérer des fan pages"
+    "pagesDesc": "Créer et gérer des fan pages",
+    "seriesTitle": "Séries d'articles",
+    "seriesDesc": "Organisez vos articles en séries"
   },
   "fanPage": {
     "follow": "Suivre",
@@ -234,5 +236,22 @@
     "codeSent": "Code envoyé ! Entrez le code à 6 chiffres ci-dessous.",
     "phoneVerified": "✓ Téléphone vérifié — réputation mise à jour.",
     "backToSettings": "← Retour aux paramètres"
+  },
+  "series": {
+    "series": "Série",
+    "noSeries": "Aucune série pour l'instant.",
+    "createSeries": "Créer une série",
+    "seriesTitle": "Titre",
+    "seriesDescription": "Description (optionnel)",
+    "saveSeries": "Enregistrer",
+    "editSeries": "Modifier",
+    "deleteSeries": "Supprimer",
+    "deleteSeriesConfirm": "Supprimer cette série ? Les articles seront dissociés.",
+    "articleCount": "{count} article(s)",
+    "manageSeries": "Gérer les séries",
+    "addToSeries": "Ajouter à une série",
+    "removeFromSeries": "Retirer de la série",
+    "seriesSection": "Séries d'articles",
+    "seriesEmpty": "Aucun article dans cette série pour l'instant."
   }
 }

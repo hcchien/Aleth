@@ -172,7 +172,9 @@
     "federationSaving": "保存中…",
     "federationSaved": "✓ 保存しました",
     "pages": "ファンページ",
-    "pagesDesc": "ファンページを作成・管理する"
+    "pagesDesc": "ファンページを作成・管理する",
+    "seriesTitle": "記事シリーズ",
+    "seriesDesc": "記事をシリーズにまとめる"
   },
   "fanPage": {
     "follow": "フォロー",
@@ -234,5 +236,22 @@
     "codeSent": "コードを送信しました！以下に6桁のコードを入力してください。",
     "phoneVerified": "✓ 電話番号が確認されました — 評判が更新されました。",
     "backToSettings": "← 設定に戻る"
+  },
+  "series": {
+    "series": "シリーズ",
+    "noSeries": "シリーズはまだありません。",
+    "createSeries": "シリーズを作成",
+    "seriesTitle": "タイトル",
+    "seriesDescription": "説明（任意）",
+    "saveSeries": "保存",
+    "editSeries": "編集",
+    "deleteSeries": "削除",
+    "deleteSeriesConfirm": "このシリーズを削除しますか？記事のリンクが解除されます。",
+    "articleCount": "{count}件の記事",
+    "manageSeries": "シリーズを管理",
+    "addToSeries": "シリーズに追加",
+    "removeFromSeries": "シリーズから削除",
+    "seriesSection": "記事シリーズ",
+    "seriesEmpty": "このシリーズにはまだ記事がありません。"
   }
 }

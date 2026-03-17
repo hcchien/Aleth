@@ -80,10 +80,33 @@ type Post {
   signatureInfo: SignatureInfo!
 }
 
+type Series {
+  id: ID!
+  boardId: ID!
+  title: String!
+  description: String
+  articleCount: Int!
+  articles: [Article!]!
+  createdAt: String!
+  updatedAt: String!
+}
+
+input CreateSeriesInput {
+  boardId: ID!
+  title: String!
+  description: String
+}
+
+input UpdateSeriesInput {
+  title: String!
+  description: String
+}
+
 type Article {
   id: ID!
   board: Board!
   author: User!
+  seriesId: ID
   title: String!
   slug: String!
   contentMd: String
@@ -146,6 +169,7 @@ type Board {
   subscriberCount: Int!
   isSubscribed: Boolean!
   writePolicy: BoardWritePolicy!
+  series: [Series!]!
   createdAt: String!
 }
 
@@ -318,6 +342,10 @@ type Query {
   pageMembers(pageId: ID!): PageMemberConnection!
   myPages: [FanPage!]!
 
+  # Series
+  series(id: ID!): Series
+  boardSeries(boardId: ID!): [Series!]!
+
   # VC registry
   availableVcTypes: [VcTypeInfo!]!
 
@@ -396,6 +424,12 @@ type Mutation {
   removePageMember(pageId: ID!, userId: ID!): Boolean!
   createPagePost(pageId: ID!, content: String!): Post!
   createPageArticle(pageId: ID!, title: String!, contentMd: String, accessPolicy: String!): Article!
+  # Series
+  createSeries(input: CreateSeriesInput!): Series!
+  updateSeries(id: ID!, input: UpdateSeriesInput!): Series!
+  deleteSeries(id: ID!): Boolean!
+  addArticleToSeries(articleId: ID!, seriesId: ID!): Article!
+  removeArticleFromSeries(articleId: ID!): Article!
   # VC registry management
   registerVcType(input: RegisterVcTypeInput!): VcTypeInfo!
   disableVcType(vcType: String!, issuer: String!): Boolean!

@@ -94,6 +94,7 @@ type Article struct {
 	ID            uuid.UUID
 	BoardID       uuid.UUID
 	PageID        *uuid.UUID
+	SeriesID      *uuid.UUID
 	AuthorID      uuid.UUID
 	Title         string
 	Slug          string
@@ -631,24 +632,25 @@ type CreateArticleParams struct {
 	ContentMd    *string
 	AccessPolicy string
 	PageID       *uuid.UUID
+	SeriesID     *uuid.UUID
 }
 
 func (p *Pool) CreateArticle(ctx context.Context, params CreateArticleParams) (Article, error) {
 	const q = `
-		INSERT INTO articles (board_id, author_id, title, slug, content_md, access_policy, page_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-		RETURNING id, board_id, page_id, author_id, title, slug, content_md, content_json,
+		INSERT INTO articles (board_id, author_id, title, slug, content_md, access_policy, page_id, series_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		RETURNING id, board_id, page_id, series_id, author_id, title, slug, content_md, content_json,
 		          status, access_policy, min_trust_level, reach_score, signature,
 		          published_at, created_at, updated_at
 	`
 	return scanArticle(p.pool.QueryRow(ctx, q,
 		params.BoardID, params.AuthorID, params.Title, params.Slug,
-		params.ContentMd, params.AccessPolicy, params.PageID))
+		params.ContentMd, params.AccessPolicy, params.PageID, params.SeriesID))
 }
 
 func (p *Pool) GetArticleByID(ctx context.Context, id uuid.UUID) (Article, error) {
 	const q = `
-		SELECT id, board_id, page_id, author_id, title, slug, content_md, content_json,
+		SELECT id, board_id, page_id, series_id, author_id, title, slug, content_md, content_json,
 		       status, access_policy, min_trust_level, reach_score, signature,
 		       published_at, created_at, updated_at
 		FROM articles WHERE id = $1
@@ -658,7 +660,7 @@ func (p *Pool) GetArticleByID(ctx context.Context, id uuid.UUID) (Article, error
 
 func (p *Pool) GetArticleBySlug(ctx context.Context, boardID uuid.UUID, slug string) (Article, error) {
 	const q = `
-		SELECT id, board_id, page_id, author_id, title, slug, content_md, content_json,
+		SELECT id, board_id, page_id, series_id, author_id, title, slug, content_md, content_json,
 		       status, access_policy, min_trust_level, reach_score, signature,
 		       published_at, created_at, updated_at
 		FROM articles WHERE board_id = $1 AND slug = $2
@@ -683,7 +685,7 @@ func (p *Pool) UpdateArticle(ctx context.Context, params UpdateArticleParams) (A
 			status        = COALESCE($5, status),
 			updated_at    = now()
 		WHERE id = $1
-		RETURNING id, board_id, page_id, author_id, title, slug, content_md, content_json,
+		RETURNING id, board_id, page_id, series_id, author_id, title, slug, content_md, content_json,
 		          status, access_policy, min_trust_level, reach_score, signature,
 		          published_at, created_at, updated_at
 	`
@@ -698,7 +700,7 @@ func (p *Pool) PublishArticle(ctx context.Context, id uuid.UUID) (Article, error
 			published_at = COALESCE(published_at, now()),
 			updated_at   = now()
 		WHERE id = $1
-		RETURNING id, board_id, page_id, author_id, title, slug, content_md, content_json,
+		RETURNING id, board_id, page_id, series_id, author_id, title, slug, content_md, content_json,
 		          status, access_policy, min_trust_level, reach_score, signature,
 		          published_at, created_at, updated_at
 	`
@@ -742,7 +744,7 @@ func (p *Pool) ListBoardArticles(ctx context.Context, params ListArticlesParams)
 	}
 
 	const q = `
-		SELECT id, board_id, page_id, author_id, title, slug, content_md, content_json,
+		SELECT id, board_id, page_id, series_id, author_id, title, slug, content_md, content_json,
 		       status, access_policy, min_trust_level, reach_score, signature,
 		       published_at, created_at, updated_at
 		FROM articles
@@ -763,7 +765,7 @@ func (p *Pool) ListBoardArticles(ctx context.Context, params ListArticlesParams)
 func scanArticle(row pgx.Row) (Article, error) {
 	var a Article
 	err := row.Scan(
-		&a.ID, &a.BoardID, &a.PageID, &a.AuthorID, &a.Title, &a.Slug,
+		&a.ID, &a.BoardID, &a.PageID, &a.SeriesID, &a.AuthorID, &a.Title, &a.Slug,
 		&a.ContentMd, &a.ContentJSON, &a.Status, &a.AccessPolicy,
 		&a.MinTrustLevel, &a.ReachScore, &a.Signature,
 		&a.PublishedAt, &a.CreatedAt, &a.UpdatedAt,
@@ -779,7 +781,7 @@ func collectArticles(rows pgx.Rows) ([]Article, error) {
 	for rows.Next() {
 		var a Article
 		err := rows.Scan(
-			&a.ID, &a.BoardID, &a.PageID, &a.AuthorID, &a.Title, &a.Slug,
+			&a.ID, &a.BoardID, &a.PageID, &a.SeriesID, &a.AuthorID, &a.Title, &a.Slug,
 			&a.ContentMd, &a.ContentJSON, &a.Status, &a.AccessPolicy,
 			&a.MinTrustLevel, &a.ReachScore, &a.Signature,
 			&a.PublishedAt, &a.CreatedAt, &a.UpdatedAt,
@@ -875,6 +877,138 @@ func (p *Pool) ListCommentReplies(ctx context.Context, parentID uuid.UUID, limit
 		out = append(out, c)
 	}
 	return out, rows.Err()
+}
+
+// ─── Series queries ───────────────────────────────────────────────────────────
+
+type Series struct {
+	ID          uuid.UUID
+	BoardID     uuid.UUID
+	Title       string
+	Description *string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
+func (p *Pool) CreateSeries(ctx context.Context, boardID uuid.UUID, title string, description *string) (Series, error) {
+	const q = `
+		INSERT INTO series (board_id, title, description)
+		VALUES ($1, $2, $3)
+		RETURNING id, board_id, title, description, created_at, updated_at
+	`
+	var s Series
+	err := p.pool.QueryRow(ctx, q, boardID, title, description).Scan(
+		&s.ID, &s.BoardID, &s.Title, &s.Description, &s.CreatedAt, &s.UpdatedAt,
+	)
+	if err != nil {
+		return Series{}, fmt.Errorf("create series: %w", err)
+	}
+	return s, nil
+}
+
+func (p *Pool) GetSeriesByID(ctx context.Context, id uuid.UUID) (Series, error) {
+	const q = `
+		SELECT id, board_id, title, description, created_at, updated_at
+		FROM series WHERE id = $1
+	`
+	var s Series
+	err := p.pool.QueryRow(ctx, q, id).Scan(
+		&s.ID, &s.BoardID, &s.Title, &s.Description, &s.CreatedAt, &s.UpdatedAt,
+	)
+	if err != nil {
+		return Series{}, fmt.Errorf("get series: %w", err)
+	}
+	return s, nil
+}
+
+func (p *Pool) ListSeriesByBoard(ctx context.Context, boardID uuid.UUID) ([]Series, error) {
+	const q = `
+		SELECT id, board_id, title, description, created_at, updated_at
+		FROM series WHERE board_id = $1
+		ORDER BY created_at ASC
+	`
+	rows, err := p.pool.Query(ctx, q, boardID)
+	if err != nil {
+		return nil, fmt.Errorf("list series: %w", err)
+	}
+	defer rows.Close()
+
+	var out []Series
+	for rows.Next() {
+		var s Series
+		if err := rows.Scan(&s.ID, &s.BoardID, &s.Title, &s.Description, &s.CreatedAt, &s.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan series: %w", err)
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
+func (p *Pool) UpdateSeries(ctx context.Context, id uuid.UUID, title string, description *string) (Series, error) {
+	const q = `
+		UPDATE series SET title = $2, description = $3, updated_at = now()
+		WHERE id = $1
+		RETURNING id, board_id, title, description, created_at, updated_at
+	`
+	var s Series
+	err := p.pool.QueryRow(ctx, q, id, title, description).Scan(
+		&s.ID, &s.BoardID, &s.Title, &s.Description, &s.CreatedAt, &s.UpdatedAt,
+	)
+	if err != nil {
+		return Series{}, fmt.Errorf("update series: %w", err)
+	}
+	return s, nil
+}
+
+func (p *Pool) DeleteSeries(ctx context.Context, id uuid.UUID) error {
+	tag, err := p.pool.Exec(ctx, `DELETE FROM series WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("delete series: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("series not found")
+	}
+	return nil
+}
+
+// SetArticleSeries assigns (or clears when seriesID is nil) an article's series.
+func (p *Pool) SetArticleSeries(ctx context.Context, articleID uuid.UUID, seriesID *uuid.UUID) (Article, error) {
+	const q = `
+		UPDATE articles SET series_id = $2, updated_at = now()
+		WHERE id = $1
+		RETURNING id, board_id, page_id, series_id, author_id, title, slug, content_md, content_json,
+		          status, access_policy, min_trust_level, reach_score, signature,
+		          published_at, created_at, updated_at
+	`
+	return scanArticle(p.pool.QueryRow(ctx, q, articleID, seriesID))
+}
+
+// ListSeriesArticles returns published articles in a series ordered by publish date.
+func (p *Pool) ListSeriesArticles(ctx context.Context, seriesID uuid.UUID) ([]Article, error) {
+	const q = `
+		SELECT id, board_id, page_id, series_id, author_id, title, slug, content_md, content_json,
+		       status, access_policy, min_trust_level, reach_score, signature,
+		       published_at, created_at, updated_at
+		FROM articles
+		WHERE series_id = $1 AND status = 'published'
+		ORDER BY published_at ASC NULLS LAST, created_at ASC
+	`
+	rows, err := p.pool.Query(ctx, q, seriesID)
+	if err != nil {
+		return nil, fmt.Errorf("list series articles: %w", err)
+	}
+	defer rows.Close()
+	return collectArticles(rows)
+}
+
+// CountSeriesArticles returns the published article count for a series.
+func (p *Pool) CountSeriesArticles(ctx context.Context, seriesID uuid.UUID) (int32, error) {
+	var n int32
+	err := p.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM articles WHERE series_id = $1 AND status = 'published'`,
+		seriesID,
+	).Scan(&n)
+	return n, err
 }
 
 // ─── Fan page queries ─────────────────────────────────────────────────────────

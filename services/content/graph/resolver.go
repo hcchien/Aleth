@@ -789,6 +789,13 @@ type ArticleResolver struct {
 func (r *ArticleResolver) ID() graphql.ID       { return graphql.ID(r.article.ID.String()) }
 func (r *ArticleResolver) BoardId() graphql.ID  { return graphql.ID(r.article.BoardID.String()) }
 func (r *ArticleResolver) AuthorId() graphql.ID { return graphql.ID(r.article.AuthorID.String()) }
+func (r *ArticleResolver) SeriesId() *graphql.ID {
+	if r.article.SeriesID == nil {
+		return nil
+	}
+	id := graphql.ID(r.article.SeriesID.String())
+	return &id
+}
 func (r *ArticleResolver) Title() string        { return r.article.Title }
 func (r *ArticleResolver) Slug() string         { return r.article.Slug }
 func (r *ArticleResolver) ContentMd() *string   { return r.article.ContentMd }
@@ -914,6 +921,18 @@ func (r *BoardResolver) IsSubscribed(ctx context.Context) (bool, error) {
 		return false, nil
 	}
 	return r.svc.IsSubscribedToBoard(ctx, r.board.ID, *viewerID)
+}
+
+func (r *BoardResolver) Series(ctx context.Context) ([]*SeriesResolver, error) {
+	seriesList, err := r.svc.ListSeriesByBoard(ctx, r.board.ID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*SeriesResolver, len(seriesList))
+	for i, s := range seriesList {
+		out[i] = &SeriesResolver{series: s, svc: r.svc}
+	}
+	return out, nil
 }
 
 // ─── Connection resolvers ─────────────────────────────────────────────────────
@@ -1424,6 +1443,187 @@ func (r *Resolver) CreatePageArticle(ctx context.Context, args struct {
 	article, err := r.svc.CreatePageArticle(ctx, authorID, pageID, service.CreateArticleInput{
 		Title: args.Title, ContentMd: args.ContentMd, AccessPolicy: args.AccessPolicy,
 	})
+	if err != nil {
+		return nil, err
+	}
+	return &ArticleResolver{article: article, svc: r.svc}, nil
+}
+
+// ─── Series ───────────────────────────────────────────────────────────────────
+
+type SeriesResolver struct {
+	series db.Series
+	svc    *service.ContentService
+}
+
+func (r *SeriesResolver) ID() graphql.ID        { return graphql.ID(r.series.ID.String()) }
+func (r *SeriesResolver) BoardId() graphql.ID   { return graphql.ID(r.series.BoardID.String()) }
+func (r *SeriesResolver) Title() string         { return r.series.Title }
+func (r *SeriesResolver) Description() *string  { return r.series.Description }
+func (r *SeriesResolver) CreatedAt() string     { return r.series.CreatedAt.UTC().Format(time.RFC3339) }
+func (r *SeriesResolver) UpdatedAt() string     { return r.series.UpdatedAt.UTC().Format(time.RFC3339) }
+
+func (r *SeriesResolver) ArticleCount(ctx context.Context) (int32, error) {
+	return r.svc.CountSeriesArticles(ctx, r.series.ID)
+}
+
+func (r *SeriesResolver) Articles(ctx context.Context) ([]*ArticleResolver, error) {
+	articles, err := r.svc.ListSeriesArticles(ctx, r.series.ID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*ArticleResolver, len(articles))
+	for i, a := range articles {
+		out[i] = &ArticleResolver{article: a, svc: r.svc}
+	}
+	return out, nil
+}
+
+func (r *Resolver) Series(ctx context.Context, args struct{ ID graphql.ID }) (*SeriesResolver, error) {
+	id, err := uuid.Parse(string(args.ID))
+	if err != nil {
+		return nil, fmt.Errorf("invalid series ID")
+	}
+	series, err := r.svc.GetSeriesByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if series == nil {
+		return nil, nil
+	}
+	return &SeriesResolver{series: *series, svc: r.svc}, nil
+}
+
+func (r *Resolver) BoardSeries(ctx context.Context, args struct{ BoardId graphql.ID }) ([]*SeriesResolver, error) {
+	boardID, err := uuid.Parse(string(args.BoardId))
+	if err != nil {
+		return nil, fmt.Errorf("invalid board ID")
+	}
+	seriesList, err := r.svc.ListSeriesByBoard(ctx, boardID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*SeriesResolver, len(seriesList))
+	for i, s := range seriesList {
+		out[i] = &SeriesResolver{series: s, svc: r.svc}
+	}
+	return out, nil
+}
+
+type CreateSeriesInput struct {
+	BoardId     graphql.ID
+	Title       string
+	Description *string
+}
+
+type UpdateSeriesInput struct {
+	Title       string
+	Description *string
+}
+
+func (r *Resolver) CreateSeries(ctx context.Context, args struct{ Input CreateSeriesInput }) (*SeriesResolver, error) {
+	claims, ok := ClaimsFromContext(ctx)
+	if !ok {
+		return nil, fmt.Errorf("not authenticated")
+	}
+	callerID, err := uuid.Parse(claims.UserID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid user ID in token")
+	}
+	boardID, err := uuid.Parse(string(args.Input.BoardId))
+	if err != nil {
+		return nil, fmt.Errorf("invalid board ID")
+	}
+	series, err := r.svc.CreateSeries(ctx, callerID, boardID, args.Input.Title, args.Input.Description)
+	if err != nil {
+		return nil, err
+	}
+	return &SeriesResolver{series: series, svc: r.svc}, nil
+}
+
+func (r *Resolver) UpdateSeries(ctx context.Context, args struct {
+	ID    graphql.ID
+	Input UpdateSeriesInput
+}) (*SeriesResolver, error) {
+	claims, ok := ClaimsFromContext(ctx)
+	if !ok {
+		return nil, fmt.Errorf("not authenticated")
+	}
+	callerID, err := uuid.Parse(claims.UserID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid user ID in token")
+	}
+	seriesID, err := uuid.Parse(string(args.ID))
+	if err != nil {
+		return nil, fmt.Errorf("invalid series ID")
+	}
+	series, err := r.svc.UpdateSeries(ctx, callerID, seriesID, args.Input.Title, args.Input.Description)
+	if err != nil {
+		return nil, err
+	}
+	return &SeriesResolver{series: series, svc: r.svc}, nil
+}
+
+func (r *Resolver) DeleteSeries(ctx context.Context, args struct{ ID graphql.ID }) (bool, error) {
+	claims, ok := ClaimsFromContext(ctx)
+	if !ok {
+		return false, fmt.Errorf("not authenticated")
+	}
+	callerID, err := uuid.Parse(claims.UserID)
+	if err != nil {
+		return false, fmt.Errorf("invalid user ID in token")
+	}
+	seriesID, err := uuid.Parse(string(args.ID))
+	if err != nil {
+		return false, fmt.Errorf("invalid series ID")
+	}
+	if err := r.svc.DeleteSeries(ctx, callerID, seriesID); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (r *Resolver) AddArticleToSeries(ctx context.Context, args struct {
+	ArticleId graphql.ID
+	SeriesId  graphql.ID
+}) (*ArticleResolver, error) {
+	claims, ok := ClaimsFromContext(ctx)
+	if !ok {
+		return nil, fmt.Errorf("not authenticated")
+	}
+	callerID, err := uuid.Parse(claims.UserID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid user ID in token")
+	}
+	articleID, err := uuid.Parse(string(args.ArticleId))
+	if err != nil {
+		return nil, fmt.Errorf("invalid article ID")
+	}
+	seriesID, err := uuid.Parse(string(args.SeriesId))
+	if err != nil {
+		return nil, fmt.Errorf("invalid series ID")
+	}
+	article, err := r.svc.AddArticleToSeries(ctx, callerID, articleID, seriesID)
+	if err != nil {
+		return nil, err
+	}
+	return &ArticleResolver{article: article, svc: r.svc}, nil
+}
+
+func (r *Resolver) RemoveArticleFromSeries(ctx context.Context, args struct{ ArticleId graphql.ID }) (*ArticleResolver, error) {
+	claims, ok := ClaimsFromContext(ctx)
+	if !ok {
+		return nil, fmt.Errorf("not authenticated")
+	}
+	callerID, err := uuid.Parse(claims.UserID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid user ID in token")
+	}
+	articleID, err := uuid.Parse(string(args.ArticleId))
+	if err != nil {
+		return nil, fmt.Errorf("invalid article ID")
+	}
+	article, err := r.svc.RemoveArticleFromSeries(ctx, callerID, articleID)
 	if err != nil {
 		return nil, err
 	}

@@ -919,7 +919,9 @@ func (r *Resolver) UnfollowUser(ctx context.Context, args struct{ UserID graphql
 // ─── Content mutation resolvers ───────────────────────────────────────────────
 
 const postFields = `id authorId parentId rootId kind content noteTitle noteCover noteSummary resharedFromId replyCount likeCount isLiked viewerEmotion reactionCounts { emotion count } createdAt signatureInfo { isSigned isVerified contentHash signature algorithm explanation }`
-const articleFields = `id boardId authorId title slug contentMd status accessPolicy publishedAt createdAt updatedAt signatureInfo { isSigned isVerified contentHash signature algorithm explanation }`
+const articleFields = `id boardId authorId seriesId title slug contentMd status accessPolicy publishedAt createdAt updatedAt signatureInfo { isSigned isVerified contentHash signature algorithm explanation }`
+const seriesFields = `id boardId title description articleCount createdAt updatedAt`
+const seriesWithArticlesFields = `id boardId title description articleCount articles { ` + articleFields + ` } createdAt updatedAt`
 const boardFields = `id ownerId name description defaultAccess minTrustLevel commentPolicy minCommentTrust requireVcs { vcType issuer } requireCommentVcs { vcType issuer } subscriberCount isSubscribed createdAt`
 
 func (r *Resolver) CreatePost(ctx context.Context, args struct{ Input CreatePostInput }) (*PostResolver, error) {
@@ -1600,6 +1602,13 @@ type ArticleResolver struct {
 }
 
 func (ar *ArticleResolver) ID() graphql.ID       { return graphql.ID(ar.article.ID) }
+func (ar *ArticleResolver) SeriesId() *graphql.ID {
+	if ar.article.SeriesID == nil {
+		return nil
+	}
+	id := graphql.ID(*ar.article.SeriesID)
+	return &id
+}
 func (ar *ArticleResolver) Title() string        { return ar.article.Title }
 func (ar *ArticleResolver) Slug() string         { return ar.article.Slug }
 func (ar *ArticleResolver) ContentMd() *string   { return ar.article.ContentMd }
@@ -1707,6 +1716,27 @@ func (br *BoardResolver) Owner(ctx context.Context) (*UserResolver, error) {
 		return nil, fmt.Errorf("owner not found: %s", br.board.OwnerID)
 	}
 	return &UserResolver{user: *u, r: br.r}, nil
+}
+
+func (br *BoardResolver) Series(ctx context.Context) ([]*GatewaySeriesResolver, error) {
+	data, err := br.r.contentGQL(ctx,
+		`query($boardId: ID!) { boardSeries(boardId: $boardId) { `+seriesFields+` } }`,
+		map[string]any{"boardId": br.board.ID},
+	)
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		BoardSeries []client.ContentSeries `json:"boardSeries"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, err
+	}
+	out := make([]*GatewaySeriesResolver, len(resp.BoardSeries))
+	for i, s := range resp.BoardSeries {
+		out[i] = &GatewaySeriesResolver{series: s, r: br.r}
+	}
+	return out, nil
 }
 
 // PostConnectionResolver resolves the PostConnection GraphQL type.
@@ -2583,4 +2613,195 @@ func (r *Resolver) CreatePageArticle(ctx context.Context, args struct {
 		return nil, err
 	}
 	return r.articleWithEnrichment(ctx, resp.CreatePageArticle)
+}
+// ─── Series ───────────────────────────────────────────────────────────────────
+
+type GatewaySeriesResolver struct {
+	series client.ContentSeries
+	r      *Resolver
+}
+
+func (sr *GatewaySeriesResolver) ID() graphql.ID       { return graphql.ID(sr.series.ID) }
+func (sr *GatewaySeriesResolver) BoardId() graphql.ID  { return graphql.ID(sr.series.BoardID) }
+func (sr *GatewaySeriesResolver) Title() string        { return sr.series.Title }
+func (sr *GatewaySeriesResolver) Description() *string { return sr.series.Description }
+func (sr *GatewaySeriesResolver) ArticleCount() int32  { return sr.series.ArticleCount }
+func (sr *GatewaySeriesResolver) CreatedAt() string    { return sr.series.CreatedAt }
+func (sr *GatewaySeriesResolver) UpdatedAt() string    { return sr.series.UpdatedAt }
+
+func (sr *GatewaySeriesResolver) Articles(ctx context.Context) ([]*ArticleResolver, error) {
+	out := make([]*ArticleResolver, 0, len(sr.series.Articles))
+	for _, a := range sr.series.Articles {
+		ar, err := sr.r.articleWithEnrichment(ctx, a)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, ar)
+	}
+	return out, nil
+}
+
+func (r *Resolver) Series(ctx context.Context, args struct{ ID graphql.ID }) (*GatewaySeriesResolver, error) {
+	data, err := r.contentGQL(ctx,
+		`query($id: ID!) { series(id: $id) { `+seriesWithArticlesFields+` } }`,
+		map[string]any{"id": string(args.ID)},
+	)
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		Series *client.ContentSeries `json:"series"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, err
+	}
+	if resp.Series == nil {
+		return nil, nil
+	}
+	return &GatewaySeriesResolver{series: *resp.Series, r: r}, nil
+}
+
+func (r *Resolver) BoardSeries(ctx context.Context, args struct{ BoardId graphql.ID }) ([]*GatewaySeriesResolver, error) {
+	data, err := r.contentGQL(ctx,
+		`query($boardId: ID!) { boardSeries(boardId: $boardId) { `+seriesFields+` } }`,
+		map[string]any{"boardId": string(args.BoardId)},
+	)
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		BoardSeries []client.ContentSeries `json:"boardSeries"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, err
+	}
+	out := make([]*GatewaySeriesResolver, len(resp.BoardSeries))
+	for i, s := range resp.BoardSeries {
+		out[i] = &GatewaySeriesResolver{series: s, r: r}
+	}
+	return out, nil
+}
+
+type CreateSeriesInput struct {
+	BoardId     graphql.ID
+	Title       string
+	Description *string
+}
+
+type UpdateSeriesInput struct {
+	Title       string
+	Description *string
+}
+
+func (r *Resolver) CreateSeries(ctx context.Context, args struct{ Input CreateSeriesInput }) (*GatewaySeriesResolver, error) {
+	vars := map[string]any{
+		"boardId": string(args.Input.BoardId),
+		"title":   args.Input.Title,
+	}
+	if args.Input.Description != nil {
+		vars["description"] = *args.Input.Description
+	}
+	data, err := r.contentGQL(ctx,
+		`mutation($boardId: ID!, $title: String!, $description: String) {
+			createSeries(input: {boardId: $boardId, title: $title, description: $description}) { `+seriesFields+` }
+		}`,
+		vars,
+	)
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		CreateSeries client.ContentSeries `json:"createSeries"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, err
+	}
+	return &GatewaySeriesResolver{series: resp.CreateSeries, r: r}, nil
+}
+
+func (r *Resolver) UpdateSeries(ctx context.Context, args struct {
+	ID    graphql.ID
+	Input UpdateSeriesInput
+}) (*GatewaySeriesResolver, error) {
+	vars := map[string]any{
+		"id":    string(args.ID),
+		"title": args.Input.Title,
+	}
+	if args.Input.Description != nil {
+		vars["description"] = *args.Input.Description
+	}
+	data, err := r.contentGQL(ctx,
+		`mutation($id: ID!, $title: String!, $description: String) {
+			updateSeries(id: $id, input: {title: $title, description: $description}) { `+seriesFields+` }
+		}`,
+		vars,
+	)
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		UpdateSeries client.ContentSeries `json:"updateSeries"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, err
+	}
+	return &GatewaySeriesResolver{series: resp.UpdateSeries, r: r}, nil
+}
+
+func (r *Resolver) DeleteSeries(ctx context.Context, args struct{ ID graphql.ID }) (bool, error) {
+	data, err := r.contentGQL(ctx,
+		`mutation($id: ID!) { deleteSeries(id: $id) }`,
+		map[string]any{"id": string(args.ID)},
+	)
+	if err != nil {
+		return false, err
+	}
+	var resp struct {
+		DeleteSeries bool `json:"deleteSeries"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return false, err
+	}
+	return resp.DeleteSeries, nil
+}
+
+func (r *Resolver) AddArticleToSeries(ctx context.Context, args struct {
+	ArticleId graphql.ID
+	SeriesId  graphql.ID
+}) (*ArticleResolver, error) {
+	data, err := r.contentGQL(ctx,
+		`mutation($articleId: ID!, $seriesId: ID!) {
+			addArticleToSeries(articleId: $articleId, seriesId: $seriesId) { `+articleFields+` }
+		}`,
+		map[string]any{"articleId": string(args.ArticleId), "seriesId": string(args.SeriesId)},
+	)
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		AddArticleToSeries client.ContentArticle `json:"addArticleToSeries"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, err
+	}
+	return r.articleWithEnrichment(ctx, resp.AddArticleToSeries)
+}
+
+func (r *Resolver) RemoveArticleFromSeries(ctx context.Context, args struct{ ArticleId graphql.ID }) (*ArticleResolver, error) {
+	data, err := r.contentGQL(ctx,
+		`mutation($articleId: ID!) {
+			removeArticleFromSeries(articleId: $articleId) { `+articleFields+` }
+		}`,
+		map[string]any{"articleId": string(args.ArticleId)},
+	)
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		RemoveArticleFromSeries client.ContentArticle `json:"removeArticleFromSeries"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, err
+	}
+	return r.articleWithEnrichment(ctx, resp.RemoveArticleFromSeries)
 }

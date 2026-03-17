@@ -8,7 +8,7 @@ A trust-centric social platform combining short-form discussion (Threads-style) 
 - **Posts** — short-form threaded discussions with replies and reshares
 - **Articles** — long-form writing published to personal boards
 - **Boards** — per-user publication spaces with configurable access and comment policy
-- **Feed** — personalised home feed based on follows and trust level
+- **Feed** — personalised home feed merging posts from followed users and followed fan pages; explore feed uses Hacker News gravity ranking
 
 ### Trust & Identity
 - **Trust levels** — reputation score (0–4) gates access to boards and pages
@@ -28,8 +28,14 @@ A trust-centric social platform combining short-form discussion (Threads-style) 
 - **Roles** — `admin` (full control) and `editor` (publish only); last-admin guard prevents lockout
 - **Content** — publish posts and articles under the page's identity
 - **Policy** — configurable `default_access`, `comment_policy`, `min_trust_level`, `min_comment_trust`, and VC gates (mirrors board policy)
-- **Followers** — local users follow pages; local follower count tracked separately from user follows
+- **Followers** — local users follow pages; followed-page posts appear in the follower's home feed; denormalized `post_count` updated via event stream
 - **ActivityPub pages** — optional AP toggle makes a page a `Group` actor at `/p/{slug}`; WebFinger resource `acct:p.{slug}@domain`; remote followers receive new page posts via signed `Create` activities
+
+### Article Series
+- **Series** — board owners can group articles into ordered series (e.g. a tutorial sequence) within their board
+- **Ordering** — series page displays articles in insertion order with a numbered list view
+- **Ownership** — only the board owner can create, edit, or delete series; article-series binding enforces same-board constraint
+- **API** — full GraphQL CRUD (`createSeries`, `updateSeries`, `deleteSeries`, `addArticleToSeries`, `removeArticleFromSeries`); articles expose `seriesId`; boards expose `series` list
 
 ## Repository Structure
 
@@ -41,9 +47,10 @@ aleth/
 ├── services/
 │   ├── gateway/          # API Gateway (GraphQL schema stitching)
 │   ├── auth/             # Auth Service (login, passkey, VC)
-│   ├── content/          # Content Service (posts, articles, boards, fan pages)
+│   ├── content/          # Content Service (posts, articles, boards, fan pages, series)
 │   ├── federation/       # ActivityPub Federation Service
-│   └── feed/             # Feed/Reach Service
+│   ├── feed/             # Feed/Reach Service (home feed + explore)
+│   └── counter/          # Counter Service (denormalized counts via Pub/Sub events)
 ├── proto/                # Protobuf definitions (gRPC inter-service)
 ├── migrations/           # DB migrations (goose, per service)
 ├── infra/                # Docker, Kubernetes, Cloud Build configs

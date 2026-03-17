@@ -179,9 +179,22 @@ type Mutation {
 
 **職責：**
 - 計算每則內容的傳播分數（Reach Score）
-- 組合使用者的個人化 feed
+- 組合使用者的個人化 feed（追蹤的使用者 ＋ 追蹤的粉絲專頁）
 - 處理按讚、分享、引用等互動事件，更新互動加權分數
 - 防洗讚邏輯
+
+**個人化 Feed 組成邏輯：**
+
+```
+1. 查詢 content DB 中使用者追蹤的 user IDs（auth DB join）
+2. 查詢 content DB 中使用者追蹤的 page IDs（page_followers 表）
+3. 若兩者皆為空 → 回傳 exploreFeed（Hacker News 重力公式排序）
+4. 否則：SELECT posts WHERE author_id = ANY(followee_ids)
+              OR (page_id IS NOT NULL AND page_id = ANY(followed_page_ids))
+   依 created_at DESC 排序，cursor-based pagination
+```
+
+Feed Service 直接查詢 content DB（同資料庫），避免跨服務 JOIN 的延遲。
 
 **GraphQL Schema（供 API Gateway 合併）：**
 ```graphql
@@ -251,9 +264,12 @@ type Mutation {
 | 事件 | 條件 | 更新目標 |
 |------|------|---------|
 | `post.created` | `kind = "reply"` | `posts.comment_count += 1`（對 `parent_id`）|
+| `post.created` | `kind != "reply"` 且 `page_id` 存在 | `fan_pages.post_count += 1`（對 `page_id`）|
 | `comment.created` | — | `articles.comment_count += 1`（對 `article_id`）|
 | `reaction.upserted` | — | `posts.reaction_count += 1`（對 `post_id`）|
 | `reaction.removed` | — | `posts.reaction_count -= 1`（floor 0，對 `post_id`）|
+
+注意：`post.created` 事件攜帶可選的 `page_id` 欄位。回覆（reply）不計入頁面貼文數，只有頂層貼文（kind ≠ reply）才觸發頁面計數更新。
 
 **設計取捨：最終一致性**
 
@@ -286,6 +302,13 @@ SET reaction_count = (
 UPDATE articles a
 SET comment_count = (
     SELECT COUNT(*) FROM article_comments c WHERE c.article_id = a.id
+);
+
+-- 校正 fan_pages.post_count
+UPDATE fan_pages fp
+SET post_count = (
+    SELECT COUNT(*) FROM posts p
+    WHERE p.page_id = fp.id AND p.kind != 'reply' AND p.deleted_at IS NULL
 );
 ```
 
@@ -470,13 +493,24 @@ article_allowlist (
 )
 
 series (
-  id              UUID PRIMARY KEY,
-  board_id        UUID REFERENCES boards(id),
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  board_id        UUID NOT NULL REFERENCES boards(id) ON DELETE CASCADE,
   title           TEXT NOT NULL,
   description     TEXT,
-  created_at      TIMESTAMPTZ
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 )
+-- index: idx_series_board_id ON series (board_id)
+
+-- articles.series_id nullable FK (ON DELETE SET NULL — deleting a series orphans articles, not deletes them)
 ```
+
+**Series 設計重點：**
+- 每個 series 屬於一個 board；只有 board 的 owner 可以管理 series
+- 一篇 article 只能屬於一個 series（`series_id` nullable FK）
+- Article 與 series 必須在同一個 board（跨 board 綁定會被 service 層拒絕）
+- 刪除 series 時，關聯的 articles 的 `series_id` 自動設為 NULL（不刪除文章）
+- Series 的文章列表按新增順序顯示（`created_at ASC`）
 
 ### 4.3 Admin
 
@@ -1139,7 +1173,7 @@ os.Setenv("DB_PASSWORD", string(secret.Payload.Data))
 
 - L3 台灣自然人憑證驗證
 - 個版完整權限設定（訂閱者限定、指定名單、信任等級門檻）
-- 系列文章功能
+- 系列文章功能（已實作，見 Phase 6）
 - 評論信任等級門檻設定
 
 ### Phase 4 — 擴充
@@ -1158,4 +1192,15 @@ os.Setenv("DB_PASSWORD", string(secret.Payload.Data))
 - 可發短文（Post）與長文（Article）於版面身份下
 - 版面存取策略：`default_access`、`comment_policy`、`min_trust_level`、`min_comment_trust`、VC gate（與個版策略欄位完全對齊）
 - 本地追蹤者（`page_followers`）；追蹤者數量獨立統計
+- **Feed 整合**：追蹤版面的使用者，其個人化首頁 feed 會包含該版面的頂層貼文（透過 Feed Service 的 `GetFollowedPageIDs` 查詢實現）
+- **貼文計數**：`fan_pages.post_count` 欄位由 Counter Service 透過 `post.created` 事件非同步更新（僅計入頂層貼文，不含回覆）
 - ActivityPub 選擇性啟用：版面成為 `Group` actor（`/p/{slug}`）；WebFinger resource `acct:p.{slug}@domain`；遠端追蹤者收到簽署的 `Create` activity
+
+### Phase 6 — 系列文章（Article Series）
+
+- **Series**：板主可在自己的 board 內建立有序的文章系列（例如教學系列）
+- 每篇文章可選擇性歸屬於一個 series（`series_id` nullable FK）
+- Article 與 series 必須屬於同一個 board，由 service 層強制驗證
+- 刪除 series 時關聯文章的 `series_id` 設為 NULL（不刪除文章）
+- 完整 GraphQL CRUD：`createSeries`、`updateSeries`、`deleteSeries`、`addArticleToSeries`、`removeArticleFromSeries`
+- 前端：`/@username/series/[seriesId]` 系列頁、設定頁面管理 series、個版主頁顯示系列卡片

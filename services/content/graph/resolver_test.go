@@ -111,3 +111,120 @@ func TestResolverValidationBranches(t *testing.T) {
 		t.Fatalf("expected not authenticated")
 	}
 }
+
+// ─── Series resolver tests ────────────────────────────────────────────────────
+
+func TestSeriesResolver_Fields(t *testing.T) {
+	now := time.Now()
+	desc := "A description"
+	s := db.Series{
+		ID:          uuid.New(),
+		BoardID:     uuid.New(),
+		Title:       "Test Series",
+		Description: &desc,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	svc := service.NewContentService(nil)
+	sr := &SeriesResolver{series: s, svc: svc}
+
+	if string(sr.ID()) != s.ID.String() {
+		t.Errorf("ID: got %s want %s", sr.ID(), s.ID)
+	}
+	if string(sr.BoardId()) != s.BoardID.String() {
+		t.Errorf("BoardId: got %s want %s", sr.BoardId(), s.BoardID)
+	}
+	if sr.Title() != "Test Series" {
+		t.Errorf("Title: got %q", sr.Title())
+	}
+	if sr.Description() == nil || *sr.Description() != desc {
+		t.Errorf("Description: got %v", sr.Description())
+	}
+	if sr.CreatedAt() == "" || sr.UpdatedAt() == "" {
+		t.Error("expected non-empty timestamps")
+	}
+}
+
+func TestSeriesResolver_NilDescription(t *testing.T) {
+	s := db.Series{
+		ID:          uuid.New(),
+		BoardID:     uuid.New(),
+		Title:       "No Desc",
+		Description: nil,
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+	svc := service.NewContentService(nil)
+	sr := &SeriesResolver{series: s, svc: svc}
+	if sr.Description() != nil {
+		t.Error("expected nil description")
+	}
+}
+
+func TestArticleResolver_SeriesId_Nil(t *testing.T) {
+	svc := service.NewContentService(nil)
+	ar := &ArticleResolver{article: db.Article{
+		ID: uuid.New(), BoardID: uuid.New(), AuthorID: uuid.New(),
+		Title: "t", Slug: "s", Status: "draft", AccessPolicy: "public",
+		SeriesID:  nil,
+		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}, svc: svc}
+	if ar.SeriesId() != nil {
+		t.Error("expected nil SeriesId when no series assigned")
+	}
+}
+
+func TestArticleResolver_SeriesId_Set(t *testing.T) {
+	svc := service.NewContentService(nil)
+	sid := uuid.New()
+	ar := &ArticleResolver{article: db.Article{
+		ID: uuid.New(), BoardID: uuid.New(), AuthorID: uuid.New(),
+		Title: "t", Slug: "s", Status: "draft", AccessPolicy: "public",
+		SeriesID:  &sid,
+		CreatedAt: time.Now(), UpdatedAt: time.Now(),
+	}, svc: svc}
+	got := ar.SeriesId()
+	if got == nil {
+		t.Fatal("expected non-nil SeriesId")
+	}
+	if string(*got) != sid.String() {
+		t.Errorf("SeriesId: got %s want %s", *got, sid)
+	}
+}
+
+func TestSeriesResolverValidationBranches(t *testing.T) {
+	r := &Resolver{}
+
+	// Series query: invalid ID
+	if _, err := r.Series(context.Background(), struct{ ID graphql.ID }{ID: "bad"}); err == nil {
+		t.Error("expected error for invalid series ID")
+	}
+
+	// BoardSeries query: invalid boardId
+	if _, err := r.BoardSeries(context.Background(), struct{ BoardId graphql.ID }{BoardId: "bad"}); err == nil {
+		t.Error("expected error for invalid boardId")
+	}
+
+	// All mutations require auth
+	if _, err := r.CreateSeries(context.Background(), struct{ Input CreateSeriesInput }{}); err == nil {
+		t.Error("expected not authenticated for CreateSeries")
+	}
+	if _, err := r.UpdateSeries(context.Background(), struct {
+		ID    graphql.ID
+		Input UpdateSeriesInput
+	}{}); err == nil {
+		t.Error("expected not authenticated for UpdateSeries")
+	}
+	if _, err := r.DeleteSeries(context.Background(), struct{ ID graphql.ID }{}); err == nil {
+		t.Error("expected not authenticated for DeleteSeries")
+	}
+	if _, err := r.AddArticleToSeries(context.Background(), struct {
+		ArticleId graphql.ID
+		SeriesId  graphql.ID
+	}{}); err == nil {
+		t.Error("expected not authenticated for AddArticleToSeries")
+	}
+	if _, err := r.RemoveArticleFromSeries(context.Background(), struct{ ArticleId graphql.ID }{}); err == nil {
+		t.Error("expected not authenticated for RemoveArticleFromSeries")
+	}
+}

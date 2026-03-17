@@ -1253,6 +1253,30 @@ func (p *Pool) CountPageFollowers(ctx context.Context, pageID uuid.UUID) (int64,
 	return count, err
 }
 
+func (p *Pool) ListPageFollowers(ctx context.Context, pageID uuid.UUID) ([]uuid.UUID, error) {
+	rows, err := p.pool.Query(ctx,
+		`SELECT user_id FROM page_followers WHERE page_id = $1`,
+		pageID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list page followers: %w", err)
+	}
+	defer rows.Close()
+
+	var out []uuid.UUID
+	for rows.Next() {
+		var userID uuid.UUID
+		if err := rows.Scan(&userID); err != nil {
+			return nil, err
+		}
+		out = append(out, userID)
+	}
+	if out == nil {
+		out = []uuid.UUID{}
+	}
+	return out, rows.Err()
+}
+
 // ─── Page post/article queries ────────────────────────────────────────────────
 
 type ListPagePostsParams struct {

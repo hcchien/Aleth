@@ -15,8 +15,8 @@ import (
 var schemaString string
 
 // NewSchema builds the executable GraphQL schema for the gateway.
-func NewSchema(authClient *client.AuthClient, contentClient *client.ContentClient, feedClient *client.FeedClient) *graphql.Schema {
-	r := &Resolver{auth: authClient, content: contentClient, feed: feedClient}
+func NewSchema(authClient *client.AuthClient, contentClient *client.ContentClient, feedClient *client.FeedClient, notifClient *client.NotificationClient) *graphql.Schema {
+	r := &Resolver{auth: authClient, content: contentClient, feed: feedClient, notif: notifClient}
 	return graphql.MustParseSchema(schemaString, r, graphql.UseStringDescriptions())
 }
 
@@ -63,6 +63,7 @@ type Resolver struct {
 	auth    *client.AuthClient
 	content *client.ContentClient
 	feed    *client.FeedClient
+	notif   *client.NotificationClient
 }
 
 // contentGQL calls the Content service GraphQL endpoint, forwarding the auth header.
@@ -2804,4 +2805,83 @@ func (r *Resolver) RemoveArticleFromSeries(ctx context.Context, args struct{ Art
 		return nil, err
 	}
 	return r.articleWithEnrichment(ctx, resp.RemoveArticleFromSeries)
+}
+
+// ─── Notification Resolvers ────────────────────────────────────────────────────
+
+// NotificationResolver wraps a GatewayNotification for GraphQL field resolution.
+type NotificationResolver struct {
+	n client.GatewayNotification
+}
+
+func (r *NotificationResolver) ID() graphql.ID     { return graphql.ID(r.n.ID) }
+func (r *NotificationResolver) Type() string       { return r.n.Type }
+func (r *NotificationResolver) ActorId() graphql.ID { return graphql.ID(r.n.ActorID) }
+func (r *NotificationResolver) EntityType() string  { return r.n.EntityType }
+func (r *NotificationResolver) EntityId() graphql.ID { return graphql.ID(r.n.EntityID) }
+func (r *NotificationResolver) Read() bool          { return r.n.Read }
+func (r *NotificationResolver) CreatedAt() string   { return r.n.CreatedAt }
+
+// Notifications returns the authenticated user's most recent notifications.
+// Returns an empty list for unauthenticated requests.
+func (r *Resolver) Notifications(ctx context.Context, args struct{ Limit *int32 }) ([]*NotificationResolver, error) {
+	if r.notif == nil {
+		return []*NotificationResolver{}, nil
+	}
+	authHeader := authHeaderFromCtx(ctx)
+	if authHeader == "" {
+		return []*NotificationResolver{}, nil
+	}
+	limit := 50
+	if args.Limit != nil && *args.Limit > 0 {
+		limit = int(*args.Limit)
+	}
+	items, err := r.notif.List(ctx, authHeader, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list notifications: %w", err)
+	}
+	out := make([]*NotificationResolver, len(items))
+	for i, n := range items {
+		n := n // capture
+		out[i] = &NotificationResolver{n: n}
+	}
+	return out, nil
+}
+
+// NotificationCount returns the number of unread notifications for the authenticated user.
+func (r *Resolver) NotificationCount(ctx context.Context) (int32, error) {
+	if r.notif == nil {
+		return 0, nil
+	}
+	authHeader := authHeaderFromCtx(ctx)
+	if authHeader == "" {
+		return 0, nil
+	}
+	count, err := r.notif.GetCount(ctx, authHeader)
+	if err != nil {
+		return 0, fmt.Errorf("notification count: %w", err)
+	}
+	return int32(count), nil
+}
+
+// MarkNotificationsRead marks the specified notifications as read.
+// If ids is nil or empty, marks all unread notifications as read.
+func (r *Resolver) MarkNotificationsRead(ctx context.Context, args struct{ Ids *[]graphql.ID }) (bool, error) {
+	if r.notif == nil {
+		return true, nil
+	}
+	authHeader := authHeaderFromCtx(ctx)
+	if authHeader == "" {
+		return false, fmt.Errorf("unauthorized")
+	}
+	var ids []string
+	if args.Ids != nil {
+		for _, id := range *args.Ids {
+			ids = append(ids, string(id))
+		}
+	}
+	if err := r.notif.MarkRead(ctx, authHeader, ids); err != nil {
+		return false, fmt.Errorf("mark notifications read: %w", err)
+	}
+	return true, nil
 }

@@ -20,6 +20,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/aleth/notification/internal/config"
+	"github.com/aleth/notification/internal/contentdb"
 	"github.com/aleth/notification/internal/db"
 	"github.com/aleth/notification/internal/service"
 )
@@ -38,7 +39,20 @@ func main() {
 	}
 	defer store.Close()
 
-	svc := service.NewNotificationService(store)
+	// ─── Content DB (optional — for page-follower fan-out) ────────────────────
+	var contentStore service.ContentStore
+	if cfg.ContentDatabaseURL != "" {
+		ctx2, cancel2 := context.WithTimeout(context.Background(), 10*time.Second)
+		cdb, err := contentdb.New(ctx2, cfg.ContentDatabaseURL)
+		cancel2()
+		if err != nil {
+			log.Fatal().Err(err).Msg("connect to content database")
+		}
+		defer cdb.Close()
+		contentStore = cdb
+	}
+
+	svc := service.NewNotificationService(store, contentStore)
 
 	// ─── Read queue worker ────────────────────────────────────────────────────
 	workerCtx, workerCancel := context.WithCancel(context.Background())

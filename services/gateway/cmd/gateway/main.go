@@ -29,8 +29,9 @@ func main() {
 	authClient := client.NewAuthClient(cfg.AuthServiceURL)
 	feedClient := client.NewFeedClient(cfg.FeedServiceURL)
 	contentClient := client.NewContentClient(cfg.ContentServiceURL)
+	notifClient := client.NewNotificationClient(cfg.NotificationURL)
 
-	gqlSchema := graph.NewSchema(authClient, contentClient, feedClient)
+	gqlSchema := graph.NewSchema(authClient, contentClient, feedClient, notifClient)
 	gqlHandler := &relay.Handler{Schema: gqlSchema}
 
 	r := chi.NewRouter()

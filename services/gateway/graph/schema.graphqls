@@ -298,6 +298,22 @@ input PagePolicyInput {
   minCommentTrust: Int
 }
 
+# --- From Notification Service ---
+
+type Notification {
+  id: ID!
+  # Notification type: "reply" | "reshare" | "comment" | "page_post"
+  type: String!
+  # UUID of the user who triggered the notification (the actor).
+  actorId: ID!
+  # Type of the entity that triggered the notification: "post" | "comment".
+  entityType: String!
+  # UUID of the post or comment that triggered the notification.
+  entityId: ID!
+  read: Boolean!
+  createdAt: String!
+}
+
 # --- From Feed Service ---
 
 type FeedItem {
@@ -355,6 +371,10 @@ type Query {
   # Progressive loading: friends of the viewer who reacted to a post.
   # Returns [] for unauthenticated requests.
   postFriendReactors(postId: ID!, limit: Int): [FriendReactor!]!
+
+  # Notifications (requires authentication; returns [] for unauthenticated requests)
+  notifications(limit: Int): [Notification!]!
+  notificationCount: Int!
 }
 
 # --- Reputation (L2 stamp scoring) ---
@@ -433,6 +453,10 @@ type Mutation {
   # VC registry management
   registerVcType(input: RegisterVcTypeInput!): VcTypeInfo!
   disableVcType(vcType: String!, issuer: String!): Boolean!
+
+  # Notifications
+  # Pass specific ids to mark those notifications as read; omit ids to mark all.
+  markNotificationsRead(ids: [ID!]): Boolean!
 }
 
 # VC type registry

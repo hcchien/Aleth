@@ -87,7 +87,7 @@ func makeEnvelope(payload any) []byte {
 
 func TestHandlePostCreated_Reply_NotifiesParentAuthor(t *testing.T) {
 	fs := &fakeStore{}
-	svc := NewNotificationService(fs)
+	svc := NewNotificationService(fs, nil)
 
 	parentAuthorID := uuid.New()
 	authorID := uuid.New()
@@ -128,7 +128,7 @@ func TestHandlePostCreated_Reply_NotifiesParentAuthor(t *testing.T) {
 
 func TestHandlePostCreated_ReplyToSelf_NoNotification(t *testing.T) {
 	fs := &fakeStore{}
-	svc := NewNotificationService(fs)
+	svc := NewNotificationService(fs, nil)
 
 	authorID := uuid.New()
 	authorIDStr := authorID.String()
@@ -151,7 +151,7 @@ func TestHandlePostCreated_ReplyToSelf_NoNotification(t *testing.T) {
 
 func TestHandlePostCreated_RootPost_NoNotification(t *testing.T) {
 	fs := &fakeStore{}
-	svc := NewNotificationService(fs)
+	svc := NewNotificationService(fs, nil)
 
 	data := makeEnvelope(postCreatedPayload{
 		PostID:   uuid.New().String(),
@@ -168,7 +168,7 @@ func TestHandlePostCreated_RootPost_NoNotification(t *testing.T) {
 
 func TestHandlePostCreated_BadEnvelope_NoNotification(t *testing.T) {
 	fs := &fakeStore{}
-	svc := NewNotificationService(fs)
+	svc := NewNotificationService(fs, nil)
 
 	// Should not panic; just logs error.
 	svc.HandleEvent(context.Background(), "post.created", []byte(`not json`))
@@ -180,7 +180,7 @@ func TestHandlePostCreated_BadEnvelope_NoNotification(t *testing.T) {
 
 func TestHandlePostCreated_BadPayload_NoNotification(t *testing.T) {
 	fs := &fakeStore{}
-	svc := NewNotificationService(fs)
+	svc := NewNotificationService(fs, nil)
 
 	// Envelope is valid but payload field contains non-JSON.
 	env, _ := json.Marshal(struct {
@@ -196,7 +196,7 @@ func TestHandlePostCreated_BadPayload_NoNotification(t *testing.T) {
 
 func TestHandlePostCreated_InvalidAuthorID_NoNotification(t *testing.T) {
 	fs := &fakeStore{}
-	svc := NewNotificationService(fs)
+	svc := NewNotificationService(fs, nil)
 
 	parentAuthorIDStr := uuid.New().String()
 	parentIDStr := uuid.New().String()
@@ -217,7 +217,7 @@ func TestHandlePostCreated_InvalidAuthorID_NoNotification(t *testing.T) {
 
 func TestHandlePostCreated_InvalidPostID_NoNotification(t *testing.T) {
 	fs := &fakeStore{}
-	svc := NewNotificationService(fs)
+	svc := NewNotificationService(fs, nil)
 
 	parentAuthorIDStr := uuid.New().String()
 	parentIDStr := uuid.New().String()
@@ -238,7 +238,7 @@ func TestHandlePostCreated_InvalidPostID_NoNotification(t *testing.T) {
 
 func TestHandlePostCreated_InvalidParentAuthorID_NoNotification(t *testing.T) {
 	fs := &fakeStore{}
-	svc := NewNotificationService(fs)
+	svc := NewNotificationService(fs, nil)
 
 	bad := "not-a-uuid"
 	parentIDStr := uuid.New().String()
@@ -259,7 +259,7 @@ func TestHandlePostCreated_InvalidParentAuthorID_NoNotification(t *testing.T) {
 
 func TestHandlePostCreated_DBError_LoggedNoNotification(t *testing.T) {
 	fs := &fakeStore{createErr: errors.New("db down")}
-	svc := NewNotificationService(fs)
+	svc := NewNotificationService(fs, nil)
 
 	parentAuthorIDStr := uuid.New().String()
 	parentIDStr := uuid.New().String()
@@ -281,7 +281,7 @@ func TestHandlePostCreated_DBError_LoggedNoNotification(t *testing.T) {
 
 func TestHandleCommentCreated_NotifiesArticleAuthor(t *testing.T) {
 	fs := &fakeStore{}
-	svc := NewNotificationService(fs)
+	svc := NewNotificationService(fs, nil)
 
 	articleAuthorID := uuid.New()
 	authorID := uuid.New()
@@ -310,7 +310,7 @@ func TestHandleCommentCreated_NotifiesArticleAuthor(t *testing.T) {
 
 func TestHandleCommentCreated_ThreadedReply_NotifiesBoth(t *testing.T) {
 	fs := &fakeStore{}
-	svc := NewNotificationService(fs)
+	svc := NewNotificationService(fs, nil)
 
 	articleAuthorID := uuid.New()
 	parentCommentAuthorID := uuid.New()
@@ -349,7 +349,7 @@ func TestHandleCommentCreated_ThreadedReply_NotifiesBoth(t *testing.T) {
 
 func TestHandleCommentCreated_SelfComment_NoNotification(t *testing.T) {
 	fs := &fakeStore{}
-	svc := NewNotificationService(fs)
+	svc := NewNotificationService(fs, nil)
 
 	authorID := uuid.New()
 
@@ -369,7 +369,7 @@ func TestHandleCommentCreated_SelfComment_NoNotification(t *testing.T) {
 
 func TestHandleCommentCreated_BadEnvelope_NoNotification(t *testing.T) {
 	fs := &fakeStore{}
-	svc := NewNotificationService(fs)
+	svc := NewNotificationService(fs, nil)
 
 	svc.HandleEvent(context.Background(), "comment.created", []byte(`not json`))
 
@@ -380,7 +380,7 @@ func TestHandleCommentCreated_BadEnvelope_NoNotification(t *testing.T) {
 
 func TestHandleCommentCreated_BadPayload_NoNotification(t *testing.T) {
 	fs := &fakeStore{}
-	svc := NewNotificationService(fs)
+	svc := NewNotificationService(fs, nil)
 
 	env, _ := json.Marshal(struct {
 		Payload json.RawMessage `json:"payload"`
@@ -395,7 +395,7 @@ func TestHandleCommentCreated_BadPayload_NoNotification(t *testing.T) {
 
 func TestHandleCommentCreated_InvalidAuthorID_NoNotification(t *testing.T) {
 	fs := &fakeStore{}
-	svc := NewNotificationService(fs)
+	svc := NewNotificationService(fs, nil)
 
 	data := makeEnvelope(commentCreatedPayload{
 		CommentID:       uuid.New().String(),
@@ -413,7 +413,7 @@ func TestHandleCommentCreated_InvalidAuthorID_NoNotification(t *testing.T) {
 
 func TestHandleCommentCreated_InvalidCommentID_NoNotification(t *testing.T) {
 	fs := &fakeStore{}
-	svc := NewNotificationService(fs)
+	svc := NewNotificationService(fs, nil)
 
 	data := makeEnvelope(commentCreatedPayload{
 		CommentID:       "not-a-uuid",
@@ -431,7 +431,7 @@ func TestHandleCommentCreated_InvalidCommentID_NoNotification(t *testing.T) {
 
 func TestHandleCommentCreated_InvalidArticleAuthorID_NoNotification(t *testing.T) {
 	fs := &fakeStore{}
-	svc := NewNotificationService(fs)
+	svc := NewNotificationService(fs, nil)
 
 	data := makeEnvelope(commentCreatedPayload{
 		CommentID:       uuid.New().String(),
@@ -449,7 +449,7 @@ func TestHandleCommentCreated_InvalidArticleAuthorID_NoNotification(t *testing.T
 
 func TestHandleCommentCreated_InvalidParentAuthorID_NoNotification(t *testing.T) {
 	fs := &fakeStore{}
-	svc := NewNotificationService(fs)
+	svc := NewNotificationService(fs, nil)
 
 	bad := "not-a-uuid"
 	parentIDStr := uuid.New().String()
@@ -472,7 +472,7 @@ func TestHandleCommentCreated_InvalidParentAuthorID_NoNotification(t *testing.T)
 
 func TestHandleCommentCreated_DBError_LoggedNoNotification(t *testing.T) {
 	fs := &fakeStore{createErr: errors.New("db down")}
-	svc := NewNotificationService(fs)
+	svc := NewNotificationService(fs, nil)
 
 	data := makeEnvelope(commentCreatedPayload{
 		CommentID:       uuid.New().String(),
@@ -491,7 +491,7 @@ func TestHandleCommentCreated_DBError_LoggedNoNotification(t *testing.T) {
 
 func TestHandleReactionUpserted_NoNotification(t *testing.T) {
 	fs := &fakeStore{}
-	svc := NewNotificationService(fs)
+	svc := NewNotificationService(fs, nil)
 
 	data := makeEnvelope(reactionUpsertedPayload{
 		PostID:  uuid.New().String(),
@@ -508,7 +508,7 @@ func TestHandleReactionUpserted_NoNotification(t *testing.T) {
 
 func TestHandleUnknownEventType_NoError(t *testing.T) {
 	fs := &fakeStore{}
-	svc := NewNotificationService(fs)
+	svc := NewNotificationService(fs, nil)
 	// Should not panic
 	svc.HandleEvent(context.Background(), "unknown.type", []byte(`{}`))
 	if len(fs.created) != 0 {
@@ -526,7 +526,7 @@ func TestCountUnread_ReturnsCount(t *testing.T) {
 		}
 		return 7, nil
 	}}
-	svc := NewNotificationService(fs)
+	svc := NewNotificationService(fs, nil)
 
 	count, err := svc.CountUnread(context.Background(), userID)
 	if err != nil {
@@ -542,7 +542,7 @@ func TestCountUnread_PropagatesError(t *testing.T) {
 	fs := &fakeStore{countUnreadFn: func(_ uuid.UUID) (int64, error) {
 		return 0, dbErr
 	}}
-	svc := NewNotificationService(fs)
+	svc := NewNotificationService(fs, nil)
 
 	_, err := svc.CountUnread(context.Background(), uuid.New())
 	if !errors.Is(err, dbErr) {
@@ -558,7 +558,7 @@ func TestList_DefaultLimit(t *testing.T) {
 		}
 		return []db.Notification{{ID: uuid.New()}}, nil
 	}}
-	svc := NewNotificationService(fs)
+	svc := NewNotificationService(fs, nil)
 
 	// limit=0 → clamped to 50
 	items, err := svc.List(context.Background(), userID, 0)
@@ -577,7 +577,7 @@ func TestList_NegativeLimit_ClampsTo50(t *testing.T) {
 		}
 		return nil, nil
 	}}
-	svc := NewNotificationService(fs)
+	svc := NewNotificationService(fs, nil)
 
 	_, err := svc.List(context.Background(), uuid.New(), -5)
 	if err != nil {
@@ -592,7 +592,7 @@ func TestList_ExcessiveLimit_ClampsTo50(t *testing.T) {
 		}
 		return nil, nil
 	}}
-	svc := NewNotificationService(fs)
+	svc := NewNotificationService(fs, nil)
 
 	_, err := svc.List(context.Background(), uuid.New(), 200)
 	if err != nil {
@@ -607,7 +607,7 @@ func TestList_ValidLimit_PassedThrough(t *testing.T) {
 		}
 		return nil, nil
 	}}
-	svc := NewNotificationService(fs)
+	svc := NewNotificationService(fs, nil)
 
 	_, err := svc.List(context.Background(), uuid.New(), 30)
 	if err != nil {
@@ -620,7 +620,7 @@ func TestList_PropagatesError(t *testing.T) {
 	fs := &fakeStore{listFn: func(_ uuid.UUID, _ int) ([]db.Notification, error) {
 		return nil, dbErr
 	}}
-	svc := NewNotificationService(fs)
+	svc := NewNotificationService(fs, nil)
 
 	_, err := svc.List(context.Background(), uuid.New(), 10)
 	if !errors.Is(err, dbErr) {
@@ -632,7 +632,7 @@ func TestList_PropagatesError(t *testing.T) {
 
 func TestReadQueue_EnqueueMarkAllRead_WritesToDBAsync(t *testing.T) {
 	fs := &fakeStore{}
-	svc := NewNotificationService(fs)
+	svc := NewNotificationService(fs, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	go svc.StartReadWorker(ctx)
@@ -666,7 +666,7 @@ func TestReadQueue_EnqueueMarkAllRead_WritesToDBAsync(t *testing.T) {
 
 func TestReadQueue_EnqueueMarkRead_WritesSpecificIDsAsync(t *testing.T) {
 	fs := &fakeStore{}
-	svc := NewNotificationService(fs)
+	svc := NewNotificationService(fs, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	go svc.StartReadWorker(ctx)
@@ -697,7 +697,7 @@ func TestReadQueue_EnqueueMarkRead_WritesSpecificIDsAsync(t *testing.T) {
 
 func TestReadQueue_DrainOnShutdown(t *testing.T) {
 	fs := &fakeStore{}
-	svc := NewNotificationService(fs)
+	svc := NewNotificationService(fs, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -741,7 +741,7 @@ func TestReadQueue_Full_DropsGracefully(t *testing.T) {
 
 func TestReadQueue_MarkAllReadDBError_DoesNotPanic(t *testing.T) {
 	fs := &fakeStore{markAllReadErr: errors.New("db down")}
-	svc := NewNotificationService(fs)
+	svc := NewNotificationService(fs, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	go svc.StartReadWorker(ctx)
@@ -755,7 +755,7 @@ func TestReadQueue_MarkAllReadDBError_DoesNotPanic(t *testing.T) {
 
 func TestReadQueue_MarkReadDBError_DoesNotPanic(t *testing.T) {
 	fs := &fakeStore{markReadErr: errors.New("db down")}
-	svc := NewNotificationService(fs)
+	svc := NewNotificationService(fs, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	go svc.StartReadWorker(ctx)
@@ -765,4 +765,217 @@ func TestReadQueue_MarkReadDBError_DoesNotPanic(t *testing.T) {
 	// Give worker time to attempt the DB call.
 	time.Sleep(50 * time.Millisecond)
 	cancel()
+}
+
+// ─── fakeContentStore ─────────────────────────────────────────────────────────
+
+type fakeContentStore struct {
+	mu        sync.Mutex
+	followers map[string][]uuid.UUID // pageID string → follower list
+	err       error                  // if set, ListPageFollowers returns this error
+}
+
+func (f *fakeContentStore) ListPageFollowers(_ context.Context, pageID uuid.UUID) ([]uuid.UUID, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.err != nil {
+		return nil, f.err
+	}
+	if f.followers == nil {
+		return []uuid.UUID{}, nil
+	}
+	list := f.followers[pageID.String()]
+	if list == nil {
+		return []uuid.UUID{}, nil
+	}
+	return list, nil
+}
+
+// ─── page_post fan-out tests ──────────────────────────────────────────────────
+
+func TestHandlePostCreated_PagePost_NotifiesFollowers(t *testing.T) {
+	fs := &fakeStore{}
+	pageID := uuid.New()
+	authorID := uuid.New()
+	postID := uuid.New()
+	follower1 := uuid.New()
+	follower2 := uuid.New()
+	follower3 := uuid.New()
+
+	cdb := &fakeContentStore{
+		followers: map[string][]uuid.UUID{
+			pageID.String(): {follower1, follower2, follower3},
+		},
+	}
+	svc := NewNotificationService(fs, cdb)
+
+	pageIDStr := pageID.String()
+	data := makeEnvelope(postCreatedPayload{
+		PostID:   postID.String(),
+		AuthorID: authorID.String(),
+		Kind:     "post",
+		PageID:   &pageIDStr,
+	})
+
+	svc.HandleEvent(context.Background(), "post.created", data)
+
+	if len(fs.created) != 3 {
+		t.Fatalf("expected 3 page_post notifications, got %d", len(fs.created))
+	}
+	for _, n := range fs.created {
+		if n.Type != "page_post" {
+			t.Errorf("expected type page_post, got %s", n.Type)
+		}
+		if n.EntityID != postID {
+			t.Errorf("EntityID: got %s want %s", n.EntityID, postID)
+		}
+		if n.ActorID != authorID {
+			t.Errorf("ActorID: got %s want %s", n.ActorID, authorID)
+		}
+	}
+	// Verify all three followers were notified
+	recipients := map[uuid.UUID]bool{}
+	for _, n := range fs.created {
+		recipients[n.UserID] = true
+	}
+	for _, fid := range []uuid.UUID{follower1, follower2, follower3} {
+		if !recipients[fid] {
+			t.Errorf("expected notification for follower %s", fid)
+		}
+	}
+}
+
+func TestHandlePostCreated_PagePost_SkipsAuthor(t *testing.T) {
+	fs := &fakeStore{}
+	pageID := uuid.New()
+	authorID := uuid.New()
+	follower1 := uuid.New()
+
+	// Author is also in the follower list — should be skipped.
+	cdb := &fakeContentStore{
+		followers: map[string][]uuid.UUID{
+			pageID.String(): {authorID, follower1},
+		},
+	}
+	svc := NewNotificationService(fs, cdb)
+
+	pageIDStr := pageID.String()
+	data := makeEnvelope(postCreatedPayload{
+		PostID:   uuid.New().String(),
+		AuthorID: authorID.String(),
+		Kind:     "post",
+		PageID:   &pageIDStr,
+	})
+
+	svc.HandleEvent(context.Background(), "post.created", data)
+
+	if len(fs.created) != 1 {
+		t.Fatalf("expected 1 notification (author skipped), got %d", len(fs.created))
+	}
+	if fs.created[0].UserID != follower1 {
+		t.Errorf("expected notification for follower1, got %s", fs.created[0].UserID)
+	}
+}
+
+func TestHandlePostCreated_PagePost_NoFollowers(t *testing.T) {
+	fs := &fakeStore{}
+	pageID := uuid.New()
+
+	cdb := &fakeContentStore{} // empty followers map
+	svc := NewNotificationService(fs, cdb)
+
+	pageIDStr := pageID.String()
+	data := makeEnvelope(postCreatedPayload{
+		PostID:   uuid.New().String(),
+		AuthorID: uuid.New().String(),
+		Kind:     "post",
+		PageID:   &pageIDStr,
+	})
+
+	svc.HandleEvent(context.Background(), "post.created", data)
+
+	if len(fs.created) != 0 {
+		t.Errorf("expected no notifications for page with no followers, got %d", len(fs.created))
+	}
+}
+
+func TestHandlePostCreated_PagePost_InvalidPageID_NoFanout(t *testing.T) {
+	fs := &fakeStore{}
+	cdb := &fakeContentStore{}
+	svc := NewNotificationService(fs, cdb)
+
+	bad := "not-a-uuid"
+	data := makeEnvelope(postCreatedPayload{
+		PostID:   uuid.New().String(),
+		AuthorID: uuid.New().String(),
+		Kind:     "post",
+		PageID:   &bad,
+	})
+
+	// Should not panic.
+	svc.HandleEvent(context.Background(), "post.created", data)
+
+	if len(fs.created) != 0 {
+		t.Errorf("expected no notifications for invalid page_id, got %d", len(fs.created))
+	}
+}
+
+func TestHandlePostCreated_ReplyAndPageSet_OnlyReplyNotified(t *testing.T) {
+	// When a post is both a reply AND on a page, it's a comment on a page post.
+	// We should notify the parent author (reply notification), but NOT fan-out
+	// page_post notifications to all followers (replies are not broadcast).
+	fs := &fakeStore{}
+	pageID := uuid.New()
+	parentAuthorID := uuid.New()
+	authorID := uuid.New()
+	follower1 := uuid.New()
+
+	cdb := &fakeContentStore{
+		followers: map[string][]uuid.UUID{
+			pageID.String(): {follower1},
+		},
+	}
+	svc := NewNotificationService(fs, cdb)
+
+	pageIDStr := pageID.String()
+	parentIDStr := uuid.New().String()
+	parentAuthorIDStr := parentAuthorID.String()
+	data := makeEnvelope(postCreatedPayload{
+		PostID:         uuid.New().String(),
+		AuthorID:       authorID.String(),
+		Kind:           "reply",
+		PageID:         &pageIDStr,
+		ParentID:       &parentIDStr,
+		ParentAuthorID: &parentAuthorIDStr,
+	})
+
+	svc.HandleEvent(context.Background(), "post.created", data)
+
+	// Only the reply notification to parentAuthor — no page_post fan-out.
+	if len(fs.created) != 1 {
+		t.Fatalf("expected 1 notification (reply only), got %d", len(fs.created))
+	}
+	if fs.created[0].Type != "reply" {
+		t.Errorf("expected type reply, got %s", fs.created[0].Type)
+	}
+}
+
+func TestHandlePostCreated_PagePost_ContentDBNil_NoFanout(t *testing.T) {
+	// When contentDB is nil (not configured), page_post fan-out is silently skipped.
+	fs := &fakeStore{}
+	svc := NewNotificationService(fs, nil) // no content DB
+
+	pageIDStr := uuid.New().String()
+	data := makeEnvelope(postCreatedPayload{
+		PostID:   uuid.New().String(),
+		AuthorID: uuid.New().String(),
+		Kind:     "post",
+		PageID:   &pageIDStr,
+	})
+
+	svc.HandleEvent(context.Background(), "post.created", data)
+
+	if len(fs.created) != 0 {
+		t.Errorf("expected no notifications when contentDB is nil, got %d", len(fs.created))
+	}
 }

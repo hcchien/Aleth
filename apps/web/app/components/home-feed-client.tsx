@@ -94,6 +94,17 @@ const PERSONALIZED_FEED_QUERY = `
   }
 `;
 
+const MY_REMOTE_FEED_QUERY = `
+  query MyRemoteFeed($limit: Int, $before: String) {
+    myRemoteFeed(limit: $limit, before: $before) {
+      posts {
+        id actorURL handle content publishedAt
+      }
+      hasMore
+    }
+  }
+`;
+
 const EXPLORE_FEED_MORE_QUERY = `
   query ExploreFeedMore($after: String, $limit: Int) {
     exploreFeed(after: $after, limit: $limit) {
@@ -151,6 +162,19 @@ function textPreview(text: string, maxLen = 140): string {
   return `${normalized.slice(0, maxLen)}…`;
 }
 
+interface RemotePostItem {
+  id: string;
+  actorURL: string;
+  handle: string;
+  content: string;
+  publishedAt: string;
+}
+
+interface RemotePostConnection {
+  posts: RemotePostItem[];
+  hasMore: boolean;
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 interface HomeFeedClientProps {
@@ -167,6 +191,11 @@ export function HomeFeedClient({ initialItems, initialCursor, initialHasMore }: 
   const [cursor, setCursor] = useState<string | null>(initialCursor);
   const [hasMore, setHasMore] = useState(initialHasMore);
   const [feedType, setFeedType] = useState<"explore" | "personalized">("explore");
+  const [activeTab, setActiveTab] = useState<"local" | "fediverse">("local");
+  const [remotePosts, setRemotePosts] = useState<RemotePostItem[]>([]);
+  const [remoteHasMore, setRemoteHasMore] = useState(false);
+  const [remoteBefore, setRemoteBefore] = useState<string | null>(null);
+  const [remoteLoading, setRemoteLoading] = useState(false);
   const [loading, setLoading] = useState(false);
   const fetchedForUserRef = useRef<string | undefined>(undefined);
 
@@ -194,6 +223,34 @@ export function HomeFeedClient({ initialItems, initialCursor, initialHasMore }: 
         // fallback: keep explore feed
       });
   }, [authLoading, user]);
+
+  async function fetchFediverse(before?: string | null) {
+    if (!user?.apEnabled) return;
+    setRemoteLoading(true);
+    try {
+      const data = await gqlClient<{ myRemoteFeed: RemotePostConnection }>(
+        MY_REMOTE_FEED_QUERY,
+        { limit: 20, ...(before ? { before } : {}) }
+      );
+      const posts = data.myRemoteFeed.posts ?? [];
+      if (before) {
+        setRemotePosts((prev) => [...prev, ...posts]);
+      } else {
+        setRemotePosts(posts);
+      }
+      setRemoteHasMore(data.myRemoteFeed.hasMore);
+      if (posts.length > 0) {
+        setRemoteBefore(posts[posts.length - 1].publishedAt);
+      }
+    } catch {
+      // silently fail
+    } finally {
+      setRemoteLoading(false);
+    }
+  }
+
+  function loadFediverse() { fetchFediverse(); }
+  function loadMoreFediverse() { if (!remoteLoading && remoteHasMore) fetchFediverse(remoteBefore); }
 
   async function loadMore() {
     if (loading || !hasMore) return;
@@ -231,46 +288,165 @@ export function HomeFeedClient({ initialItems, initialCursor, initialHasMore }: 
         : t("composeUpgrade")
       : t("composeSignIn");
 
+  const showFediverseTab = !authLoading && !!user?.apEnabled;
+
+  function handleFediverseTab() {
+    setActiveTab("fediverse");
+    if (remotePosts.length === 0 && !remoteLoading) {
+      loadFediverse();
+    }
+  }
+
   return (
     <>
       <h1
-        className="mb-6 text-3xl font-bold text-[var(--app-text-heading)]"
-        style={{ fontFamily: "var(--font-playfair), 'Playfair Display', Georgia, serif" }}
+        className="mb-4 text-3xl font-bold text-[var(--app-text-heading)]"
+        style={{ fontFamily: "var(--font-playfair), 'Playfair Display', Georgia, serif", letterSpacing: "-0.02em" }}
       >
-        {headingText}
+        {activeTab === "fediverse" ? "Fediverse" : headingText}
       </h1>
 
-      <Link
-        href="/compose"
-        className="mb-8 block w-full rounded-md border border-[var(--app-border)] bg-[var(--app-surface)] px-4 py-3 text-center text-sm text-[var(--app-text-muted)] hover:border-[var(--app-accent-border)] hover:text-[var(--app-accent)] transition-colors"
-      >
-        {composeText}
-      </Link>
-
-      {items.length === 0 && !authLoading ? (
-        <div className="rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] px-6 py-10 text-center text-sm text-[var(--app-text-secondary)]">
-          {feedType === "personalized" ? t("emptyPersonalized") : t("emptyExplore")}
-        </div>
-      ) : (
-        <div className="divide-y divide-[var(--app-border)]">
-          {items.map((item) => (
-            <FeedCard key={item.id} item={item} />
-          ))}
-        </div>
-      )}
-
-      {hasMore && (
-        <div className="py-6 text-center">
+      {showFediverseTab && (
+        <div className="mb-5 flex gap-1 border-b border-[var(--app-border)]">
           <button
-            onClick={loadMore}
-            disabled={loading}
-            className="text-sm text-[var(--app-text-muted)] hover:text-[var(--app-text-secondary)] disabled:opacity-50 transition-colors"
+            onClick={() => setActiveTab("local")}
+            className={[
+              "px-3 pb-2 text-sm font-medium transition-colors",
+              activeTab === "local"
+                ? "border-b-2 border-[var(--app-accent)] text-[var(--app-accent)]"
+                : "text-[var(--app-text-muted)] hover:text-[var(--app-text-secondary)]",
+            ].join(" ")}
           >
-            {loading ? tCommon("loading") : t("loadMore")}
+            {headingText}
+          </button>
+          <button
+            onClick={handleFediverseTab}
+            className={[
+              "px-3 pb-2 text-sm font-medium transition-colors",
+              activeTab === "fediverse"
+                ? "border-b-2 border-[var(--app-accent)] text-[var(--app-accent)]"
+                : "text-[var(--app-text-muted)] hover:text-[var(--app-text-secondary)]",
+            ].join(" ")}
+          >
+            Fediverse
           </button>
         </div>
       )}
+
+      {activeTab === "local" && (
+        <>
+          <Link href="/compose" className="compose-bar mb-8">
+            {composeText}
+          </Link>
+
+          {items.length === 0 && !authLoading ? (
+            <div className="rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] px-6 py-10 text-center text-sm text-[var(--app-text-secondary)]">
+              {feedType === "personalized" ? t("emptyPersonalized") : t("emptyExplore")}
+            </div>
+          ) : (
+            <div className="divide-y divide-[var(--app-border)]">
+              {items.map((item) => (
+                <FeedCard key={item.id} item={item} />
+              ))}
+            </div>
+          )}
+
+          {hasMore && (
+            <div className="py-6 text-center">
+              <button
+                onClick={loadMore}
+                disabled={loading}
+                className="btn-ghost disabled:opacity-50"
+              >
+                {loading ? tCommon("loading") : t("loadMore")}
+              </button>
+            </div>
+          )}
+        </>
+      )}
+
+      {activeTab === "fediverse" && (
+        <>
+          {remoteLoading && remotePosts.length === 0 && (
+            <div className="py-10 text-center text-sm text-[var(--app-text-muted)]">
+              {tCommon("loading")}
+            </div>
+          )}
+
+          {!remoteLoading && remotePosts.length === 0 && (
+            <div className="rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] px-6 py-10 text-center text-sm text-[var(--app-text-secondary)]">
+              <p className="mb-2 font-medium text-[var(--app-text-heading)]">No fediverse posts yet</p>
+              <p className="text-[var(--app-text-muted)]">
+                Go to{" "}
+                <Link href="/settings" className="text-[var(--app-accent)] hover:underline">
+                  Settings → ActivityPub
+                </Link>{" "}
+                and follow a Threads or Mastodon account to see posts here.
+              </p>
+            </div>
+          )}
+
+          {remotePosts.length > 0 && (
+            <div className="divide-y divide-[var(--app-border)]">
+              {remotePosts.map((post) => (
+                <RemotePostCard key={post.id} post={post} />
+              ))}
+            </div>
+          )}
+
+          {remoteHasMore && (
+            <div className="py-6 text-center">
+              <button
+                onClick={loadMoreFediverse}
+                disabled={remoteLoading}
+                className="btn-ghost disabled:opacity-50"
+              >
+                {remoteLoading ? tCommon("loading") : t("loadMore")}
+              </button>
+            </div>
+          )}
+        </>
+      )}
     </>
+  );
+}
+
+// ─── RemotePostCard ────────────────────────────────────────────────────────────
+
+function RemotePostCard({ post }: { post: RemotePostItem }) {
+  const initial = post.handle.replace(/^@/, "").charAt(0).toUpperCase();
+  const color = avatarColor(post.handle);
+  const date = formatDate(post.publishedAt);
+  // Strip basic HTML tags from AP Note content for display
+  const plainContent = post.content.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+
+  return (
+    <div className="py-5">
+      <div className="mb-2 flex items-center gap-2">
+        <span className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold ${color}`}>
+          {initial}
+        </span>
+        <div className="min-w-0">
+          <a
+            href={post.actorURL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-sm font-medium text-[var(--app-text)] hover:underline font-mono"
+          >
+            {post.handle}
+          </a>
+          {date && (
+            <span className="ml-2 text-xs text-[var(--app-text-muted)]">{date}</span>
+          )}
+        </div>
+        <span className="ml-auto shrink-0 rounded-full border border-[var(--app-border-2)] px-2 py-0.5 text-[0.6rem] font-semibold uppercase tracking-widest text-[var(--app-text-dim)]">
+          Fediverse
+        </span>
+      </div>
+      <p className="text-sm leading-relaxed text-[var(--app-text-secondary)]">
+        {textPreview(plainContent, 280)}
+      </p>
+    </div>
   );
 }
 
@@ -371,7 +547,7 @@ function FeedCard({ item }: { item: FeedItem }) {
       {/* Title */}
       <h2
         className="mb-1.5 text-xl font-bold leading-snug text-[var(--app-text-heading)]"
-        style={{ fontFamily: "var(--font-playfair), 'Playfair Display', Georgia, serif" }}
+        style={{ fontFamily: "var(--font-playfair), 'Playfair Display', Georgia, serif", letterSpacing: "-0.015em", textWrap: "balance" as const }}
       >
         {detailHref ? (
           <Link href={detailHref} className="hover:text-[var(--app-accent)] transition-colors">

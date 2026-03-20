@@ -6,6 +6,7 @@ import { LocaleForm } from "./locale-form";
 import { ThemeForm } from "./theme-form";
 import type { Theme } from "./theme-form";
 import { FederationToggle } from "./federation-toggle";
+import { RemoteFollows } from "./remote-follows";
 
 export default async function SettingsPage() {
   const locale = (await getLocale()) as Locale;
@@ -71,6 +72,7 @@ export default async function SettingsPage() {
           <h2 className="mb-1 text-sm font-semibold text-[var(--app-text-bright)]">{t("federation")}</h2>
           <p className="mb-4 text-xs text-[var(--app-text-muted)]">{t("federationDesc")}</p>
           <FederationToggle />
+          <RemoteFollows />
         </section>
 
         {/* Board settings */}

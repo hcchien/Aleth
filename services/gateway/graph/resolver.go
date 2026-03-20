@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	graphql "github.com/graph-gophers/graphql-go"
 
@@ -15,8 +16,8 @@ import (
 var schemaString string
 
 // NewSchema builds the executable GraphQL schema for the gateway.
-func NewSchema(authClient *client.AuthClient, contentClient *client.ContentClient, feedClient *client.FeedClient, notifClient *client.NotificationClient) *graphql.Schema {
-	r := &Resolver{auth: authClient, content: contentClient, feed: feedClient, notif: notifClient}
+func NewSchema(authClient *client.AuthClient, contentClient *client.ContentClient, feedClient *client.FeedClient, notifClient *client.NotificationClient, federationClient *client.FederationClient) *graphql.Schema {
+	r := &Resolver{auth: authClient, content: contentClient, feed: feedClient, notif: notifClient, federation: federationClient}
 	return graphql.MustParseSchema(schemaString, r, graphql.UseStringDescriptions())
 }
 
@@ -60,10 +61,11 @@ func claimsFromCtx(ctx context.Context) (UserClaims, bool) {
 
 // Resolver is the root GraphQL resolver for the gateway.
 type Resolver struct {
-	auth    *client.AuthClient
-	content *client.ContentClient
-	feed    *client.FeedClient
-	notif   *client.NotificationClient
+	auth       *client.AuthClient
+	content    *client.ContentClient
+	feed       *client.FeedClient
+	notif      *client.NotificationClient
+	federation *client.FederationClient
 }
 
 // contentGQL calls the Content service GraphQL endpoint, forwarding the auth header.
@@ -168,7 +170,7 @@ type BoardSettingsInput struct {
 // ─── Query resolvers ──────────────────────────────────────────────────────────
 
 func (r *Resolver) Me(ctx context.Context) (*UserResolver, error) {
-	data, err := r.authGQL(ctx, `{ me { id did username displayName email trustLevel createdAt } }`, nil)
+	data, err := r.authGQL(ctx, `{ me { id did username displayName email trustLevel apEnabled createdAt } }`, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -2884,4 +2886,162 @@ func (r *Resolver) MarkNotificationsRead(ctx context.Context, args struct{ Ids *
 		return false, fmt.Errorf("mark notifications read: %w", err)
 	}
 	return true, nil
+}
+
+// ─── Fediverse resolvers ──────────────────────────────────────────────────────
+
+// FollowRemoteActor sends a Follow activity to a remote AP actor on behalf of the viewer.
+// handle can be "@user@threads.net" or a direct actor URL.
+func (r *Resolver) FollowRemoteActor(ctx context.Context, args struct{ Handle string }) (bool, error) {
+	claims, ok := claimsFromCtx(ctx)
+	if !ok || claims.Username == "" {
+		return false, fmt.Errorf("unauthorized")
+	}
+	if r.federation == nil {
+		return false, fmt.Errorf("federation service not configured")
+	}
+	if err := r.federation.FollowRemoteActor(ctx, claims.Username, args.Handle); err != nil {
+		return false, fmt.Errorf("follow remote actor: %w", err)
+	}
+	return true, nil
+}
+
+// UnfollowRemoteActor sends an Undo(Follow) activity to a remote AP actor.
+func (r *Resolver) UnfollowRemoteActor(ctx context.Context, args struct{ ActorURL string }) (bool, error) {
+	claims, ok := claimsFromCtx(ctx)
+	if !ok || claims.Username == "" {
+		return false, fmt.Errorf("unauthorized")
+	}
+	if r.federation == nil {
+		return false, fmt.Errorf("federation service not configured")
+	}
+	if err := r.federation.UnfollowRemoteActor(ctx, claims.Username, args.ActorURL); err != nil {
+		return false, fmt.Errorf("unfollow remote actor: %w", err)
+	}
+	return true, nil
+}
+
+// MyRemoteFollowing returns the list of remote AP actors the viewer follows.
+func (r *Resolver) MyRemoteFollowing(ctx context.Context) ([]*RemoteActorResolver, error) {
+	claims, ok := claimsFromCtx(ctx)
+	if !ok || claims.Username == "" {
+		return []*RemoteActorResolver{}, nil
+	}
+	if r.federation == nil {
+		return []*RemoteActorResolver{}, nil
+	}
+	list, err := r.federation.ListRemoteFollowing(ctx, claims.Username)
+	if err != nil {
+		return nil, fmt.Errorf("list remote following: %w", err)
+	}
+	out := make([]*RemoteActorResolver, len(list))
+	for i, f := range list {
+		out[i] = &RemoteActorResolver{f: f}
+	}
+	return out, nil
+}
+
+// MyRemoteFeed returns posts received from remote AP actors the viewer follows.
+func (r *Resolver) MyRemoteFeed(ctx context.Context, args struct {
+	Limit  *int32
+	Before *string
+}) (*RemotePostConnectionResolver, error) {
+	claims, ok := claimsFromCtx(ctx)
+	if !ok || claims.Username == "" {
+		return &RemotePostConnectionResolver{}, nil
+	}
+	if r.federation == nil {
+		return &RemotePostConnectionResolver{}, nil
+	}
+	limit := 20
+	if args.Limit != nil {
+		limit = int(*args.Limit)
+	}
+	before := ""
+	if args.Before != nil {
+		before = *args.Before
+	}
+	page, err := r.federation.ListRemotePosts(ctx, claims.Username, limit, before)
+	if err != nil {
+		return nil, fmt.Errorf("list remote posts: %w", err)
+	}
+	return &RemotePostConnectionResolver{page: page}, nil
+}
+
+// ─── RemoteActorResolver ──────────────────────────────────────────────────────
+
+type RemoteActorResolver struct {
+	f client.RemoteFollowing
+}
+
+func (r *RemoteActorResolver) ActorURL() string { return r.f.ActorURL }
+func (r *RemoteActorResolver) Handle() string   { return actorURLToHandle(r.f.ActorURL) }
+func (r *RemoteActorResolver) Accepted() bool   { return r.f.Accepted }
+func (r *RemoteActorResolver) CreatedAt() string { return r.f.CreatedAt }
+
+// ─── RemotePostConnectionResolver ────────────────────────────────────────────
+
+type RemotePostConnectionResolver struct {
+	page *client.RemotePostPage
+}
+
+func (r *RemotePostConnectionResolver) Posts() []*RemotePostResolver {
+	if r.page == nil {
+		return nil
+	}
+	out := make([]*RemotePostResolver, len(r.page.Posts))
+	for i, p := range r.page.Posts {
+		out[i] = &RemotePostResolver{p: p}
+	}
+	return out
+}
+
+func (r *RemotePostConnectionResolver) HasMore() bool {
+	if r.page == nil {
+		return false
+	}
+	return r.page.HasMore
+}
+
+// ─── RemotePostResolver ───────────────────────────────────────────────────────
+
+type RemotePostResolver struct {
+	p client.RemotePost
+}
+
+func (r *RemotePostResolver) ID() graphql.ID  { return graphql.ID(r.p.ID) }
+func (r *RemotePostResolver) ActorURL() string { return r.p.ActorURL }
+func (r *RemotePostResolver) Handle() string   { return actorURLToHandle(r.p.ActorURL) }
+func (r *RemotePostResolver) Content() string  { return r.p.Content }
+func (r *RemotePostResolver) PublishedAt() string { return r.p.PublishedAt }
+
+// actorURLToHandle converts "https://threads.net/users/hcchien" → "@hcchien@threads.net".
+func actorURLToHandle(actorURL string) string {
+	// Try to extract user + domain from common AP actor URL patterns.
+	// https://threads.net/users/hcchien → @hcchien@threads.net
+	// https://mastodon.social/users/hcchien → @hcchien@mastodon.social
+	s := actorURL
+	for _, prefix := range []string{"https://", "http://"} {
+		s = strings.TrimPrefix(s, prefix)
+	}
+	// s is now "domain/users/username" or "domain/@username"
+	parts := strings.SplitN(s, "/", 3)
+	if len(parts) < 2 {
+		return actorURL
+	}
+	domain := parts[0]
+	var username string
+	if len(parts) == 3 {
+		username = strings.TrimPrefix(parts[2], "@")
+	} else {
+		username = strings.TrimPrefix(parts[1], "@")
+	}
+	// Strip query strings and fragments from username.
+	if i := strings.IndexAny(username, "?#"); i >= 0 {
+		username = username[:i]
+	}
+	if username == "" {
+		return actorURL
+	}
+	return "@" + username + "@" + domain
 }

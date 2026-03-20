@@ -67,6 +67,12 @@ func main() {
 	// Internal endpoint: called by content service after post creation.
 	r.Post("/internal/post-created", h.NotifyPostCreated)
 
+	// Internal: remote follow management (called by gateway on behalf of local users).
+	r.Post("/internal/follow-remote", h.FollowRemoteActor)
+	r.Delete("/internal/follow-remote", h.UnfollowRemoteActor)
+	r.Get("/internal/remote-following", h.ListRemoteFollowing)
+	r.Get("/internal/remote-posts", h.ListRemotePosts)
+
 	// Page actor routes.
 	r.Get("/p/{slug}", h.ServePageActor)
 	r.Get("/p/{slug}/outbox", h.ServePageOutbox)

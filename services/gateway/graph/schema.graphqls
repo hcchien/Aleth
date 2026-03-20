@@ -375,6 +375,37 @@ type Query {
   # Notifications (requires authentication; returns [] for unauthenticated requests)
   notifications(limit: Int): [Notification!]!
   notificationCount: Int!
+
+  # Fediverse — remote actors followed by the authenticated user
+  myRemoteFollowing: [RemoteActor!]!
+  # Fediverse — posts received from remote actors the user follows
+  myRemoteFeed(limit: Int, before: String): RemotePostConnection!
+}
+
+# --- ActivityPub / Fediverse ---
+
+"""A remote ActivityPub actor that a local user follows (e.g. a Threads account)."""
+type RemoteActor {
+  actorURL: String!
+  """Human-readable handle derived from the actor URL, e.g. @user@threads.net"""
+  handle: String!
+  """True once the remote server has sent Accept(Follow)."""
+  accepted: Boolean!
+  createdAt: String!
+}
+
+"""A post received from a remote fediverse account."""
+type RemotePost {
+  id: ID!
+  actorURL: String!
+  handle: String!
+  content: String!
+  publishedAt: String!
+}
+
+type RemotePostConnection {
+  posts: [RemotePost!]!
+  hasMore: Boolean!
 }
 
 # --- Reputation (L2 stamp scoring) ---
@@ -413,6 +444,9 @@ type Mutation {
   verifyPhoneOTP(phone: String!, code: String!): AuthPayload!
   # ActivityPub federation opt-in/out
   setActivityPubEnabled(enabled: Boolean!): Boolean!
+  # Fediverse — follow / unfollow a remote AP actor (e.g. @user@threads.net)
+  followRemoteActor(handle: String!): Boolean!
+  unfollowRemoteActor(actorURL: String!): Boolean!
 
   # Content
   createPost(input: CreatePostInput!): Post!

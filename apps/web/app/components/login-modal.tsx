@@ -11,7 +11,7 @@ const LOGIN_MUTATION = `
     login(input: $input) {
       accessToken
       refreshToken
-      user { id username displayName email trustLevel }
+      user { id username displayName email trustLevel apEnabled }
     }
   }
 `;
@@ -21,7 +21,7 @@ const LOGIN_WITH_GOOGLE_MUTATION = `
     loginWithGoogle(idToken: $idToken) {
       accessToken
       refreshToken
-      user { id username displayName email trustLevel }
+      user { id username displayName email trustLevel apEnabled }
     }
   }
 `;
@@ -43,7 +43,7 @@ const FINISH_PASSKEY_LOGIN_MUTATION = `
     finishPasskeyLogin(input: $input) {
       accessToken
       refreshToken
-      user { id username displayName email trustLevel }
+      user { id username displayName email trustLevel apEnabled }
     }
   }
 `;
@@ -57,6 +57,7 @@ interface AuthPayload {
     displayName: string | null;
     email: string | null;
     trustLevel: number;
+    apEnabled: boolean;
   };
 }
 

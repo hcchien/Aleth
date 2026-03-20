@@ -25,6 +25,9 @@ import (
 	"github.com/aleth/federation/internal/keys"
 )
 
+// remoteHTTPClient is used for all outbound requests to remote AP servers.
+var remoteHTTPClient = &http.Client{Timeout: 15 * time.Second}
+
 // Handler holds all dependencies for the federation HTTP handlers.
 type Handler struct {
 	cfg     config.Config
@@ -253,10 +256,71 @@ func (h *Handler) ServeInbox(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		w.WriteHeader(http.StatusAccepted)
+	case "Accept":
+		h.handleAccept(w, r, username, activity)
+	case "Create":
+		h.handleCreate(w, r, username, activity)
 	default:
 		// Unhandled activity types are silently accepted.
 		w.WriteHeader(http.StatusAccepted)
 	}
+}
+
+// handleAccept marks our outbound Follow as accepted when the remote sends Accept(Follow).
+func (h *Handler) handleAccept(w http.ResponseWriter, r *http.Request, username string, activity map[string]any) {
+	actorURL, _ := activity["actor"].(string)
+	if actorURL == "" {
+		w.WriteHeader(http.StatusAccepted)
+		return
+	}
+	if err := h.db.MarkFollowingAccepted(r.Context(), username, actorURL); err != nil {
+		log.Error().Err(err).Str("actor", actorURL).Msg("inbox: mark following accepted failed")
+	}
+	w.WriteHeader(http.StatusAccepted)
+}
+
+// handleCreate processes an incoming Create(Note) activity, storing it as a remote post.
+func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request, username string, activity map[string]any) {
+	obj, _ := activity["object"].(map[string]any)
+	if obj == nil {
+		w.WriteHeader(http.StatusAccepted)
+		return
+	}
+	objType, _ := obj["type"].(string)
+	if objType != "Note" {
+		w.WriteHeader(http.StatusAccepted)
+		return
+	}
+
+	activityID, _ := activity["id"].(string)
+	actorURL, _ := activity["actor"].(string)
+	content, _ := obj["content"].(string)
+	publishedStr, _ := obj["published"].(string)
+
+	if activityID == "" || actorURL == "" || content == "" {
+		w.WriteHeader(http.StatusAccepted)
+		return
+	}
+
+	// Only store posts from actors we actively follow.
+	following, err := h.db.GetRemoteFollowing(r.Context(), username, actorURL)
+	if err != nil || following == nil {
+		w.WriteHeader(http.StatusAccepted)
+		return
+	}
+
+	publishedAt := time.Now()
+	if publishedStr != "" {
+		if t, err := time.Parse(time.RFC3339, publishedStr); err == nil {
+			publishedAt = t
+		}
+	}
+
+	if err := h.db.UpsertRemotePost(r.Context(), activityID, actorURL, username, content, publishedAt, activity); err != nil {
+		log.Error().Err(err).Str("activityID", activityID).Msg("inbox: store remote post failed")
+	}
+
+	w.WriteHeader(http.StatusAccepted)
 }
 
 // handleFollow records the new remote follower and sends an Accept back.
@@ -397,7 +461,7 @@ func (h *Handler) sendSignedActivity(ctx context.Context, localUsername, targetI
 		return fmt.Errorf("sign request: %w", err)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := remoteHTTPClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("post to inbox: %w", err)
 	}
@@ -653,6 +717,243 @@ func (h *Handler) NotifyPagePostCreated(w http.ResponseWriter, r *http.Request) 
 	w.WriteHeader(http.StatusOK)
 }
 
+// ─── Internal: follow / unfollow remote actor ─────────────────────────────────
+
+// FollowRemoteActor handles POST /internal/follow-remote.
+// The gateway calls this after a user triggers followRemoteActor in GQL.
+// Body: { "localUsername": "...", "actorURL": "..." }
+func (h *Handler) FollowRemoteActor(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		LocalUsername string `json:"localUsername"`
+		ActorURL      string `json:"actorURL"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.LocalUsername == "" || req.ActorURL == "" {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+
+	// Resolve actor URL via WebFinger if the input is an @handle@domain handle.
+	actorURL, inboxURL, err := resolveRemoteActor(r.Context(), req.ActorURL)
+	if err != nil {
+		log.Error().Err(err).Str("input", req.ActorURL).Msg("follow: resolve remote actor failed")
+		http.Error(w, "could not resolve remote actor: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+
+	// Verify local user has AP enabled.
+	user, err := h.auth.GetUserByUsername(r.Context(), req.LocalUsername)
+	if err != nil || user == nil || !user.APEnabled {
+		http.Error(w, "local user not found or AP disabled", http.StatusBadRequest)
+		return
+	}
+
+	// Ensure we have an actor key for signing.
+	actorKey, err := h.db.GetActorKeyByUsername(r.Context(), req.LocalUsername)
+	if err != nil || actorKey == nil {
+		http.Error(w, "actor key not found — visit your actor endpoint first", http.StatusInternalServerError)
+		return
+	}
+
+	// Build a Follow activity.
+	followID := "https://" + h.cfg.Domain + "/@" + req.LocalUsername + "/follows/" + strings.ReplaceAll(actorURL, "https://", "")
+	follow := map[string]any{
+		"@context": "https://www.w3.org/ns/activitystreams",
+		"id":       followID,
+		"type":     "Follow",
+		"actor":    "https://" + h.cfg.Domain + "/@" + req.LocalUsername,
+		"object":   actorURL,
+	}
+
+	// Store the pending follow.
+	if err := h.db.AddRemoteFollowing(r.Context(), req.LocalUsername, actorURL, inboxURL, followID); err != nil {
+		log.Error().Err(err).Msg("follow: store failed")
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	// Deliver the Follow activity asynchronously.
+	go h.deliverActivity(req.LocalUsername, inboxURL, follow)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"actorURL": actorURL, "status": "pending"})
+}
+
+// UnfollowRemoteActor handles DELETE /internal/follow-remote.
+// Body: { "localUsername": "...", "actorURL": "..." }
+func (h *Handler) UnfollowRemoteActor(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		LocalUsername string `json:"localUsername"`
+		ActorURL      string `json:"actorURL"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.LocalUsername == "" || req.ActorURL == "" {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+
+	following, err := h.db.GetRemoteFollowing(r.Context(), req.LocalUsername, req.ActorURL)
+	if err != nil || following == nil {
+		http.Error(w, "not following", http.StatusNotFound)
+		return
+	}
+
+	actorKey, err := h.db.GetActorKeyByUsername(r.Context(), req.LocalUsername)
+	if err != nil || actorKey == nil {
+		http.Error(w, "actor key not found", http.StatusInternalServerError)
+		return
+	}
+
+	// Build Undo(Follow).
+	undo := map[string]any{
+		"@context": "https://www.w3.org/ns/activitystreams",
+		"id":       following.FollowActivityID + "/undo",
+		"type":     "Undo",
+		"actor":    "https://" + h.cfg.Domain + "/@" + req.LocalUsername,
+		"object": map[string]any{
+			"id":     following.FollowActivityID,
+			"type":   "Follow",
+			"actor":  "https://" + h.cfg.Domain + "/@" + req.LocalUsername,
+			"object": req.ActorURL,
+		},
+	}
+
+	// Remove from DB first, then best-effort deliver Undo.
+	if err := h.db.RemoveRemoteFollowing(r.Context(), req.LocalUsername, req.ActorURL); err != nil {
+		log.Error().Err(err).Msg("unfollow: remove failed")
+	}
+	go h.deliverActivity(req.LocalUsername, following.InboxURL, undo)
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// ListRemoteFollowing handles GET /internal/remote-following?username={username}.
+func (h *Handler) ListRemoteFollowing(w http.ResponseWriter, r *http.Request) {
+	username := r.URL.Query().Get("username")
+	if username == "" {
+		http.Error(w, "username required", http.StatusBadRequest)
+		return
+	}
+	list, err := h.db.ListRemoteFollowing(r.Context(), username)
+	if err != nil {
+		log.Error().Err(err).Msg("list remote following")
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	type item struct {
+		ActorURL  string `json:"actorURL"`
+		InboxURL  string `json:"inboxURL"`
+		Accepted  bool   `json:"accepted"`
+		CreatedAt string `json:"createdAt"`
+	}
+	out := make([]item, len(list))
+	for i, f := range list {
+		out[i] = item{ActorURL: f.ActorURL, InboxURL: f.InboxURL, Accepted: f.Accepted, CreatedAt: f.CreatedAt.UTC().Format(time.RFC3339)}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(out)
+}
+
+// ListRemotePosts handles GET /internal/remote-posts?username={username}&limit={n}&before={RFC3339}.
+func (h *Handler) ListRemotePosts(w http.ResponseWriter, r *http.Request) {
+	username := r.URL.Query().Get("username")
+	if username == "" {
+		http.Error(w, "username required", http.StatusBadRequest)
+		return
+	}
+	limit := 20
+	var before *time.Time
+	if b := r.URL.Query().Get("before"); b != "" {
+		if t, err := time.Parse(time.RFC3339, b); err == nil {
+			before = &t
+		}
+	}
+
+	posts, err := h.db.ListRemotePosts(r.Context(), username, limit, before)
+	if err != nil {
+		log.Error().Err(err).Msg("list remote posts")
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	type postItem struct {
+		ID          string `json:"id"`
+		ActivityID  string `json:"activityID"`
+		ActorURL    string `json:"actorURL"`
+		Content     string `json:"content"`
+		PublishedAt string `json:"publishedAt"`
+	}
+	out := make([]postItem, len(posts))
+	for i, p := range posts {
+		out[i] = postItem{
+			ID:          p.ID.String(),
+			ActivityID:  p.ActivityID,
+			ActorURL:    p.ActorURL,
+			Content:     p.Content,
+			PublishedAt: p.PublishedAt.UTC().Format(time.RFC3339),
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"posts": out, "hasMore": len(posts) == limit})
+}
+
+// resolveRemoteActor converts an @handle@domain string or a bare actor URL into
+// the canonical actor URL + inbox URL pair.
+func resolveRemoteActor(ctx context.Context, input string) (actorURL, inboxURL string, err error) {
+	// If it looks like a URL already, just fetch actor directly.
+	if strings.HasPrefix(input, "https://") || strings.HasPrefix(input, "http://") {
+		inbox, err := fetchRemoteInbox(ctx, input)
+		return input, inbox, err
+	}
+
+	// Parse @user@domain or user@domain
+	handle := strings.TrimPrefix(input, "@")
+	parts := strings.SplitN(handle, "@", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return "", "", fmt.Errorf("invalid handle: %q", input)
+	}
+	user, domain := parts[0], parts[1]
+
+	// Resolve via WebFinger.
+	wfURL := "https://" + domain + "/.well-known/webfinger?resource=acct:" + user + "@" + domain
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, wfURL, nil)
+	if err != nil {
+		return "", "", fmt.Errorf("build webfinger request: %w", err)
+	}
+	req.Header.Set("Accept", "application/jrd+json")
+
+	resp, err := remoteHTTPClient.Do(req)
+	if err != nil {
+		return "", "", fmt.Errorf("webfinger request: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", "", fmt.Errorf("webfinger returned %d for %s", resp.StatusCode, wfURL)
+	}
+
+	var wf struct {
+		Links []struct {
+			Rel  string `json:"rel"`
+			Type string `json:"type"`
+			Href string `json:"href"`
+		} `json:"links"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 64*1024)).Decode(&wf); err != nil {
+		return "", "", fmt.Errorf("decode webfinger: %w", err)
+	}
+
+	for _, l := range wf.Links {
+		if l.Rel == "self" && (l.Type == "application/activity+json" || l.Type == "application/ld+json; profile=\"https://www.w3.org/ns/activitystreams\"") {
+			actorURL = l.Href
+			break
+		}
+	}
+	if actorURL == "" {
+		return "", "", fmt.Errorf("no ActivityPub actor link in WebFinger for %s", input)
+	}
+
+	inboxURL, err = fetchRemoteInbox(ctx, actorURL)
+	return actorURL, inboxURL, err
+}
+
 // fetchRemoteInbox retrieves the inbox URL from a remote AP actor document.
 func fetchRemoteInbox(ctx context.Context, actorURL string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, actorURL, nil)
@@ -661,7 +962,7 @@ func fetchRemoteInbox(ctx context.Context, actorURL string) (string, error) {
 	}
 	req.Header.Set("Accept", "application/activity+json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := remoteHTTPClient.Do(req)
 	if err != nil {
 		return "", err
 	}

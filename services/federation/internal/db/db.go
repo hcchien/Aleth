@@ -238,6 +238,159 @@ func (p *Pool) MarkDeliveryRetry(ctx context.Context, id uuid.UUID, attempts int
 	return err
 }
 
+// ─── RemoteFollowing ──────────────────────────────────────────────────────────
+
+// RemoteFollowing is one row from the remote_following table.
+type RemoteFollowing struct {
+	ID               uuid.UUID
+	LocalUsername    string
+	ActorURL         string
+	InboxURL         string
+	FollowActivityID string
+	Accepted         bool
+	CreatedAt        time.Time
+}
+
+// AddRemoteFollowing records that localUsername is following actorURL.
+// Idempotent via ON CONFLICT DO UPDATE so re-following refreshes the activity ID.
+func (p *Pool) AddRemoteFollowing(ctx context.Context, localUsername, actorURL, inboxURL, followActivityID string) error {
+	_, err := p.pool.Exec(ctx, `
+		INSERT INTO remote_following (local_username, actor_url, inbox_url, follow_activity_id)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (local_username, actor_url) DO UPDATE
+		  SET inbox_url = EXCLUDED.inbox_url,
+		      follow_activity_id = EXCLUDED.follow_activity_id,
+		      accepted = false
+	`, localUsername, actorURL, inboxURL, followActivityID)
+	return err
+}
+
+// RemoveRemoteFollowing deletes the following record.
+func (p *Pool) RemoveRemoteFollowing(ctx context.Context, localUsername, actorURL string) error {
+	_, err := p.pool.Exec(ctx, `
+		DELETE FROM remote_following WHERE local_username = $1 AND actor_url = $2
+	`, localUsername, actorURL)
+	return err
+}
+
+// MarkFollowingAccepted sets accepted=true for a remote follow.
+func (p *Pool) MarkFollowingAccepted(ctx context.Context, localUsername, actorURL string) error {
+	_, err := p.pool.Exec(ctx, `
+		UPDATE remote_following SET accepted = true WHERE local_username = $1 AND actor_url = $2
+	`, localUsername, actorURL)
+	return err
+}
+
+// GetRemoteFollowing fetches a single following record. Returns nil, nil if not found.
+func (p *Pool) GetRemoteFollowing(ctx context.Context, localUsername, actorURL string) (*RemoteFollowing, error) {
+	row := p.pool.QueryRow(ctx, `
+		SELECT id, local_username, actor_url, inbox_url, follow_activity_id, accepted, created_at
+		FROM remote_following
+		WHERE local_username = $1 AND actor_url = $2
+	`, localUsername, actorURL)
+	var f RemoteFollowing
+	err := row.Scan(&f.ID, &f.LocalUsername, &f.ActorURL, &f.InboxURL, &f.FollowActivityID, &f.Accepted, &f.CreatedAt)
+	if err == pgx.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get remote following: %w", err)
+	}
+	return &f, nil
+}
+
+// ListRemoteFollowing returns all remote actors that localUsername follows.
+func (p *Pool) ListRemoteFollowing(ctx context.Context, localUsername string) ([]RemoteFollowing, error) {
+	rows, err := p.pool.Query(ctx, `
+		SELECT id, local_username, actor_url, inbox_url, follow_activity_id, accepted, created_at
+		FROM remote_following
+		WHERE local_username = $1
+		ORDER BY created_at DESC
+	`, localUsername)
+	if err != nil {
+		return nil, fmt.Errorf("list remote following: %w", err)
+	}
+	defer rows.Close()
+	var out []RemoteFollowing
+	for rows.Next() {
+		var f RemoteFollowing
+		if err := rows.Scan(&f.ID, &f.LocalUsername, &f.ActorURL, &f.InboxURL, &f.FollowActivityID, &f.Accepted, &f.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan remote following: %w", err)
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
+// ─── RemotePost ───────────────────────────────────────────────────────────────
+
+// RemotePost is one row from the remote_posts table.
+type RemotePost struct {
+	ID             uuid.UUID
+	ActivityID     string
+	ActorURL       string
+	LocalRecipient string
+	Content        string
+	PublishedAt    time.Time
+	RawActivity    map[string]any
+	CreatedAt      time.Time
+}
+
+// UpsertRemotePost stores an incoming federated post. Idempotent on activity_id.
+func (p *Pool) UpsertRemotePost(ctx context.Context, activityID, actorURL, localRecipient, content string, publishedAt time.Time, rawActivity map[string]any) error {
+	raw, err := json.Marshal(rawActivity)
+	if err != nil {
+		return fmt.Errorf("marshal raw activity: %w", err)
+	}
+	_, err = p.pool.Exec(ctx, `
+		INSERT INTO remote_posts (activity_id, actor_url, local_recipient, content, published_at, raw_activity)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		ON CONFLICT (activity_id) DO NOTHING
+	`, activityID, actorURL, localRecipient, content, publishedAt, raw)
+	return err
+}
+
+// ListRemotePosts returns remote posts for a local recipient, newest first.
+// If before is set, returns only posts older than that timestamp.
+func (p *Pool) ListRemotePosts(ctx context.Context, localRecipient string, limit int, before *time.Time) ([]RemotePost, error) {
+	var rows pgx.Rows
+	var err error
+	if before != nil {
+		rows, err = p.pool.Query(ctx, `
+			SELECT id, activity_id, actor_url, local_recipient, content, published_at, raw_activity, created_at
+			FROM remote_posts
+			WHERE local_recipient = $1 AND published_at < $2
+			ORDER BY published_at DESC
+			LIMIT $3
+		`, localRecipient, before, limit)
+	} else {
+		rows, err = p.pool.Query(ctx, `
+			SELECT id, activity_id, actor_url, local_recipient, content, published_at, raw_activity, created_at
+			FROM remote_posts
+			WHERE local_recipient = $1
+			ORDER BY published_at DESC
+			LIMIT $2
+		`, localRecipient, limit)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("list remote posts: %w", err)
+	}
+	defer rows.Close()
+	var out []RemotePost
+	for rows.Next() {
+		var rp RemotePost
+		var rawJSON []byte
+		if err := rows.Scan(&rp.ID, &rp.ActivityID, &rp.ActorURL, &rp.LocalRecipient, &rp.Content, &rp.PublishedAt, &rawJSON, &rp.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan remote post: %w", err)
+		}
+		if err := json.Unmarshal(rawJSON, &rp.RawActivity); err != nil {
+			return nil, fmt.Errorf("unmarshal raw activity: %w", err)
+		}
+		out = append(out, rp)
+	}
+	return out, rows.Err()
+}
+
 func scanDeliveryRows(rows pgx.Rows) ([]DeliveryItem, error) {
 	var items []DeliveryItem
 	for rows.Next() {

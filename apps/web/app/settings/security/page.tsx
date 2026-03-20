@@ -15,7 +15,7 @@ const REGISTER_PASSKEY_MUTATION = `
     ) {
       accessToken
       refreshToken
-      user { id username displayName email trustLevel }
+      user { id username displayName email trustLevel apEnabled }
     }
   }
 `;
@@ -29,6 +29,7 @@ interface AuthPayload {
     displayName: string | null;
     email: string | null;
     trustLevel: number;
+    apEnabled: boolean;
   };
 }
 

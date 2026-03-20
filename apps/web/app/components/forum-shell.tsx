@@ -113,26 +113,30 @@ export async function ForumShell({
         <header className="sticky top-0 z-20 border-b border-[var(--app-border)] bg-[var(--app-header)] px-4 py-4 md:px-10">
           <div className="mx-auto flex max-w-5xl items-center justify-between">
             <div className="flex items-center gap-4">
-              <Link href="/" className="font-serif text-2xl text-[var(--app-accent)] hover:opacity-90">
+              <Link
+                href="/"
+                className="text-2xl font-bold tracking-tight text-[var(--app-accent)] hover:opacity-85 transition-opacity"
+                style={{ fontFamily: "var(--font-playfair), 'Playfair Display', Georgia, serif" }}
+              >
                 Aleth
               </Link>
               <nav className="flex items-center gap-1">
                 <Link
                   href="/"
-                  className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
+                  className={`rounded px-3 py-1.5 text-xs font-semibold tracking-widest uppercase transition-colors ${
                     !activeTab || activeTab === "feed"
-                      ? "bg-[var(--app-divider)] text-[var(--app-text-heading)]"
-                      : "text-[var(--app-text-secondary)] hover:bg-[var(--app-divider)]"
+                      ? "text-[var(--app-accent)] bg-[var(--app-accent-bg)]"
+                      : "text-[var(--app-text-nav)] hover:text-[var(--app-text-heading)] hover:bg-[var(--app-hover)]"
                   }`}
                 >
                   {tn("feed")}
                 </Link>
                 <Link
                   href="/notes"
-                  className={`rounded-md px-3 py-1.5 text-sm transition-colors ${
+                  className={`rounded px-3 py-1.5 text-xs font-semibold tracking-widest uppercase transition-colors ${
                     activeTab === "notes"
-                      ? "bg-[var(--app-divider)] text-[var(--app-text-heading)]"
-                      : "text-[var(--app-text-secondary)] hover:bg-[var(--app-divider)]"
+                      ? "text-[var(--app-accent)] bg-[var(--app-accent-bg)]"
+                      : "text-[var(--app-text-nav)] hover:text-[var(--app-text-heading)] hover:bg-[var(--app-hover)]"
                   }`}
                 >
                   {tn("notes")}

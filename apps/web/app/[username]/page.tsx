@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { getTranslations } from "next-intl/server";
+import Link from "next/link";
 import { gql } from "@/lib/gql";
 import { ForumShell, FanPage } from "../components/forum-shell";
 import { ArticleCard } from "../components/article-card";
@@ -13,6 +14,7 @@ const BOARD_QUERY = `
     board(username: $username) {
       id name description subscriberCount isSubscribed defaultAccess createdAt
       owner { id username displayName trustLevel createdAt }
+      series { id title description articleCount }
     }
   }
 `;
@@ -36,6 +38,13 @@ const FOLLOW_STATS_QUERY = `
   }
 `;
 
+interface SeriesItem {
+  id: string;
+  title: string;
+  description: string | null;
+  articleCount: number;
+}
+
 interface Board {
   id: string;
   name: string;
@@ -44,6 +53,7 @@ interface Board {
   isSubscribed: boolean;
   defaultAccess: string;
   createdAt: string;
+  series: SeriesItem[];
   owner: {
     id: string;
     username: string;
@@ -78,6 +88,7 @@ interface PageProps {
 
 export default async function UserProfilePage({ params }: PageProps) {
   const t = await getTranslations("profile");
+  const tSeries = await getTranslations("series");
   const { username: rawUsername } = await params;
   const username = rawUsername.startsWith("%40")
     ? rawUsername.slice(3)
@@ -208,11 +219,47 @@ export default async function UserProfilePage({ params }: PageProps) {
         </div>
       </div>
 
+      {/* Series section */}
+      {board.series.length > 0 && (
+        <div className="mb-8">
+          <h2
+            className="mb-3 font-serif text-xl font-bold text-[var(--app-text-heading)]"
+            style={{ fontFamily: "var(--font-playfair), 'Playfair Display', Georgia, serif" }}
+          >
+            {tSeries("seriesSection")}
+          </h2>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {board.series.map((s) => (
+              <Link
+                key={s.id}
+                href={`/@${username}/series/${s.id}`}
+                className="group rounded-xl border border-[var(--app-border-2)] bg-[var(--app-surface)] p-4 hover:border-[var(--app-border-hover)] transition-colors"
+              >
+                <p className="font-medium text-[var(--app-text-bright)] group-hover:text-[var(--app-accent)] transition-colors">
+                  {s.title}
+                </p>
+                {s.description && (
+                  <p className="mt-0.5 text-xs text-[var(--app-text-muted)] line-clamp-2">
+                    {s.description}
+                  </p>
+                )}
+                <p className="mt-1.5 text-xs text-[var(--app-text-secondary)]">
+                  {tSeries("articleCount", { count: s.articleCount })}
+                </p>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Articles section */}
       <div className="mb-4 flex items-center justify-between">
-        <h2 className="font-serif text-xl text-[var(--app-text-bright)]">
+        <h2
+          className="font-serif text-xl font-bold text-[var(--app-text-heading)]"
+          style={{ fontFamily: "var(--font-playfair), 'Playfair Display', Georgia, serif" }}
+        >
           {t("articles")}
-          <span className="ml-2 font-mono text-sm text-[var(--app-text-muted)]">
+          <span className="ml-2 font-sans text-sm font-normal text-[var(--app-text-muted)]">
             ({enrichedArticles.length}{articles.hasMore ? "+" : ""})
           </span>
         </h2>
@@ -223,7 +270,7 @@ export default async function UserProfilePage({ params }: PageProps) {
           {t("noArticles")}
         </div>
       ) : (
-        <div className="space-y-4">
+        <div>
           {enrichedArticles.map((article) => (
             <ArticleCard key={article.id} article={article} />
           ))}

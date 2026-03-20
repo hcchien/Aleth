@@ -5,7 +5,7 @@ import { getAccessToken } from "@/lib/auth";
 
 interface Notification {
   id: string;
-  type: string; // 'reply' | 'reshare' | 'comment' | 'reaction'
+  type: string; // 'reply' | 'reshare' | 'comment' | 'reaction' | 'page_post'
   actor_id: string;
   entity_type: string;
   entity_id: string;
@@ -30,6 +30,7 @@ const TYPE_LABEL: Record<string, string> = {
   reshare: "轉貼了你的貼文",
   comment: "在文章留言",
   reaction: "對你的貼文按讚",
+  page_post: "在頁面發佈了新文章",
 };
 
 function formatRelativeTime(iso: string) {
@@ -171,7 +172,15 @@ function NotificationItem({ notification: n }: { notification: Notification }) {
       }`}
     >
       <span className="mt-0.5 text-base">
-        {n.type === "reply" ? "↩" : n.type === "reshare" ? "↗" : n.type === "comment" ? "💬" : "❤️"}
+        {n.type === "reply"
+          ? "↩"
+          : n.type === "reshare"
+          ? "↗"
+          : n.type === "comment"
+          ? "💬"
+          : n.type === "page_post"
+          ? "📢"
+          : "❤️"}
       </span>
       <div className="flex-1 min-w-0">
         <p className="text-sm text-[var(--app-text-bright)]">{label}</p>

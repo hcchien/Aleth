@@ -53,6 +53,7 @@ func (s *FeedService) GetFeed(ctx context.Context, viewerID *uuid.UUID, after *s
 	}
 
 	var followeeIDs []uuid.UUID
+	var followedPageIDs []uuid.UUID
 	if viewerID != nil {
 		ids, err := s.auth.GetFolloweeIDs(ctx, *viewerID)
 		if err != nil {
@@ -60,17 +61,24 @@ func (s *FeedService) GetFeed(ctx context.Context, viewerID *uuid.UUID, after *s
 		}
 		// Include viewer's own posts in their feed.
 		followeeIDs = append(ids, *viewerID)
+
+		pageIDs, err := s.content.GetFollowedPageIDs(ctx, *viewerID)
+		if err != nil {
+			return nil, err
+		}
+		followedPageIDs = pageIDs
 	}
 
 	var posts []db.FeedPost
 	var err error
 
-	if len(followeeIDs) > 0 {
+	if len(followeeIDs) > 0 || len(followedPageIDs) > 0 {
 		posts, err = s.content.ListFeedPosts(ctx, db.FeedPostsParams{
-			FolloweeIDs: followeeIDs,
-			ViewerID:    viewerID,
-			Cursor:      cursor,
-			Limit:       limit + 1,
+			FolloweeIDs:     followeeIDs,
+			FollowedPageIDs: followedPageIDs,
+			ViewerID:        viewerID,
+			Cursor:          cursor,
+			Limit:           limit + 1,
 		})
 	} else {
 		// No follows → fall back to explore feed.

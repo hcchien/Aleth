@@ -6,6 +6,7 @@ import { LocaleForm } from "./locale-form";
 import { ThemeForm } from "./theme-form";
 import type { Theme } from "./theme-form";
 import { FederationToggle } from "./federation-toggle";
+import { RemoteFollows } from "./remote-follows";
 
 export default async function SettingsPage() {
   const locale = (await getLocale()) as Locale;
@@ -71,6 +72,7 @@ export default async function SettingsPage() {
           <h2 className="mb-1 text-sm font-semibold text-[var(--app-text-bright)]">{t("federation")}</h2>
           <p className="mb-4 text-xs text-[var(--app-text-muted)]">{t("federationDesc")}</p>
           <FederationToggle />
+          <RemoteFollows />
         </section>
 
         {/* Board settings */}
@@ -88,11 +90,23 @@ export default async function SettingsPage() {
         {/* Fan pages */}
         <Link
           href="/settings/pages"
-          className="flex items-center justify-between rounded-xl border border-[var(--app-border-2)] bg-[var(--app-surface)] p-5 transition-colors hover:border-[var(--app-border-hover)] hover:bg-[var(--app-surface-hover)]"
+          className="mb-4 flex items-center justify-between rounded-xl border border-[var(--app-border-2)] bg-[var(--app-surface)] p-5 transition-colors hover:border-[var(--app-border-hover)] hover:bg-[var(--app-surface-hover)]"
         >
           <div>
             <h2 className="text-sm font-semibold text-[var(--app-text-bright)]">{t("pages")}</h2>
             <p className="mt-0.5 text-xs text-[var(--app-text-muted)]">{t("pagesDesc")}</p>
+          </div>
+          <span className="text-[var(--app-text-dim)]">›</span>
+        </Link>
+
+        {/* Article series */}
+        <Link
+          href="/settings/series"
+          className="flex items-center justify-between rounded-xl border border-[var(--app-border-2)] bg-[var(--app-surface)] p-5 transition-colors hover:border-[var(--app-border-hover)] hover:bg-[var(--app-surface-hover)]"
+        >
+          <div>
+            <h2 className="text-sm font-semibold text-[var(--app-text-bright)]">{t("seriesTitle")}</h2>
+            <p className="mt-0.5 text-xs text-[var(--app-text-muted)]">{t("seriesDesc")}</p>
           </div>
           <span className="text-[var(--app-text-dim)]">›</span>
         </Link>

@@ -96,17 +96,39 @@ type ContentStore struct {
 
 func NewContentStore(pool *pgxpool.Pool) *ContentStore { return &ContentStore{pool: pool} }
 
-// FeedPostsParams controls a personalized feed query.
-type FeedPostsParams struct {
-	FolloweeIDs []uuid.UUID // authors to include (should include viewer's own ID)
-	ViewerID    *uuid.UUID  // for my_emotion join; nil for anonymous
-	Cursor      *uuid.UUID  // last seen post ID
-	Limit       int
+// GetFollowedPageIDs returns the IDs of fan pages that viewerID follows.
+func (s *ContentStore) GetFollowedPageIDs(ctx context.Context, viewerID uuid.UUID) ([]uuid.UUID, error) {
+	const q = `SELECT page_id FROM page_followers WHERE user_id = $1`
+	rows, err := s.pool.Query(ctx, q, viewerID)
+	if err != nil {
+		return nil, fmt.Errorf("get followed page ids: %w", err)
+	}
+	defer rows.Close()
+
+	var ids []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan page id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }
 
-// ListFeedPosts returns posts from the given followee IDs, newest first.
+// FeedPostsParams controls a personalized feed query.
+type FeedPostsParams struct {
+	FolloweeIDs     []uuid.UUID // authors to include (should include viewer's own ID)
+	FollowedPageIDs []uuid.UUID // fan pages the viewer follows
+	ViewerID        *uuid.UUID  // for my_emotion join; nil for anonymous
+	Cursor          *uuid.UUID  // last seen post ID
+	Limit           int
+}
+
+// ListFeedPosts returns posts from the given followee IDs and followed page IDs,
+// newest first.
 func (s *ContentStore) ListFeedPosts(ctx context.Context, p FeedPostsParams) ([]FeedPost, error) {
-	if len(p.FolloweeIDs) == 0 {
+	if len(p.FolloweeIDs) == 0 && len(p.FollowedPageIDs) == 0 {
 		return nil, nil
 	}
 	const q = `
@@ -122,12 +144,12 @@ func (s *ContentStore) ListFeedPosts(ctx context.Context, p FeedPostsParams) ([]
 		       ON pl.post_id = p.id AND pl.user_id = $1
 		WHERE p.deleted_at IS NULL
 		  AND p.parent_id IS NULL
-		  AND p.author_id = ANY($2)
+		  AND (p.author_id = ANY($2) OR (p.page_id IS NOT NULL AND p.page_id = ANY($5)))
 		  AND ($3::uuid IS NULL OR p.created_at < (SELECT created_at FROM posts WHERE id = $3))
 		ORDER BY p.created_at DESC
 		LIMIT $4
 	`
-	rows, err := s.pool.Query(ctx, q, p.ViewerID, p.FolloweeIDs, p.Cursor, p.Limit)
+	rows, err := s.pool.Query(ctx, q, p.ViewerID, p.FolloweeIDs, p.Cursor, p.Limit, p.FollowedPageIDs)
 	if err != nil {
 		return nil, fmt.Errorf("list feed posts: %w", err)
 	}

@@ -4,7 +4,7 @@ function formatDate(iso: string | null): string {
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleDateString("zh-TW", { month: "numeric", day: "numeric" });
+  return d.toLocaleDateString("zh-TW", { year: "numeric", month: "numeric", day: "numeric" });
 }
 
 interface ArticleCardProps {
@@ -22,9 +22,11 @@ interface ArticleCardProps {
       owner: { username: string };
     };
   };
+  /** Optional rubric label shown above the title */
+  rubric?: string;
 }
 
-export function ArticleCard({ article }: ArticleCardProps) {
+export function ArticleCard({ article, rubric }: ArticleCardProps) {
   const ownerUsername = article.board.owner.username.replace(/^@+/, "");
   const articleRef = article.slug || article.id;
   const href = `/@${ownerUsername}/${articleRef}`;
@@ -32,19 +34,15 @@ export function ArticleCard({ article }: ArticleCardProps) {
   const date = formatDate(article.publishedAt);
 
   return (
-    <article className="rounded-xl border border-[#2a2e38] bg-[#0f1117] p-5 transition-colors hover:border-[#404654]">
-      <Link href={href} className="group">
-        <h2 className="mb-2 font-serif text-lg text-[#f3c06a] group-hover:text-amber-300">
-          {article.title}
-        </h2>
-      </Link>
-      <div className="flex items-center gap-2 text-xs text-[#7a8090]">
-        <Link
-          href={`/@${ownerUsername}`}
-          className="font-medium text-[#aeb4bf] hover:text-white"
-        >
+    <Link href={href} className="article-row group block">
+      {rubric && (
+        <p className="article-row__rubric rubric">{rubric}</p>
+      )}
+      <h2 className="article-row__title">{article.title}</h2>
+      <div className="article-row__meta">
+        <span className="font-medium text-[var(--app-text-secondary)]">
           {article.board.name}
-        </Link>
+        </span>
         <span>·</span>
         <span>{authorName}</span>
         {date && (
@@ -54,6 +52,6 @@ export function ArticleCard({ article }: ArticleCardProps) {
           </>
         )}
       </div>
-    </article>
+    </Link>
   );
 }

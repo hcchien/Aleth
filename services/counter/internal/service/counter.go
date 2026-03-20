@@ -39,6 +39,7 @@ type store interface {
 	IncrPostCommentCount(ctx context.Context, postID uuid.UUID) error
 	IncrArticleCommentCount(ctx context.Context, articleID uuid.UUID) error
 	UpdatePostReactionCounts(ctx context.Context, postID uuid.UUID) error
+	IncrPagePostCount(ctx context.Context, pageID uuid.UUID) error
 }
 
 // CounterService updates denormalized counters in response to domain events.
@@ -80,6 +81,7 @@ func (s *CounterService) HandleEvent(ctx context.Context, eventType string, data
 type postCreatedPayload struct {
 	Kind     string  `json:"kind"`
 	ParentID *string `json:"parent_id,omitempty"`
+	PageID   *string `json:"page_id,omitempty"`
 }
 
 type commentCreatedPayload struct {
@@ -102,17 +104,29 @@ func (s *CounterService) handlePostCreated(ctx context.Context, data []byte) err
 		return fmt.Errorf("unmarshal payload: %w", err)
 	}
 
-	// Only replies increment a parent post's comment counter.
-	if p.Kind != "reply" || p.ParentID == nil {
-		return nil
+	// Replies increment the parent post's comment counter.
+	if p.Kind == "reply" && p.ParentID != nil {
+		parentID, err := uuid.Parse(*p.ParentID)
+		if err != nil {
+			return fmt.Errorf("parse parent_id: %w", err)
+		}
+		if err := s.db.IncrPostCommentCount(ctx, parentID); err != nil {
+			return err
+		}
 	}
 
-	parentID, err := uuid.Parse(*p.ParentID)
-	if err != nil {
-		return fmt.Errorf("parse parent_id: %w", err)
+	// Top-level page posts increment the page's post counter.
+	if p.Kind != "reply" && p.PageID != nil {
+		pageID, err := uuid.Parse(*p.PageID)
+		if err != nil {
+			return fmt.Errorf("parse page_id: %w", err)
+		}
+		if err := s.db.IncrPagePostCount(ctx, pageID); err != nil {
+			return err
+		}
 	}
 
-	return s.db.IncrPostCommentCount(ctx, parentID)
+	return nil
 }
 
 func (s *CounterService) handleCommentCreated(ctx context.Context, data []byte) error {

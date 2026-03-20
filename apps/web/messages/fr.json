@@ -161,8 +161,8 @@
     "securityDesc": "Gérer les clés d'accès et l'authentification",
     "board": "Paramètres du tableau",
     "boardDesc": "Configurer la politique d'accès au tableau",
-    "reputation": "Réputation (L2)",
-    "reputationDesc": "Vérifiez votre identité pour atteindre le niveau de confiance 2",
+    "reputation": "Réputation & Vérification",
+    "reputationDesc": "Vérifiez votre identité pour améliorer votre niveau de confiance",
     "federation": "Fédération ActivityPub",
     "federationDesc": "Permettre aux autres serveurs Fediverse de découvrir votre profil",
     "federationEnabled": "Fédération activée — votre profil est visible sur le Fediverse",
@@ -172,7 +172,9 @@
     "federationSaving": "Enregistrement…",
     "federationSaved": "✓ Enregistré",
     "pages": "Fan pages",
-    "pagesDesc": "Créer et gérer des fan pages"
+    "pagesDesc": "Créer et gérer des fan pages",
+    "seriesTitle": "Séries d'articles",
+    "seriesDesc": "Organisez vos articles en séries"
   },
   "fanPage": {
     "follow": "Suivre",
@@ -234,5 +236,22 @@
     "codeSent": "Code envoyé ! Entrez le code à 6 chiffres ci-dessous.",
     "phoneVerified": "✓ Téléphone vérifié — réputation mise à jour.",
     "backToSettings": "← Retour aux paramètres"
+  },
+  "series": {
+    "series": "Série",
+    "noSeries": "Aucune série pour l'instant.",
+    "createSeries": "Créer une série",
+    "seriesTitle": "Titre",
+    "seriesDescription": "Description (optionnel)",
+    "saveSeries": "Enregistrer",
+    "editSeries": "Modifier",
+    "deleteSeries": "Supprimer",
+    "deleteSeriesConfirm": "Supprimer cette série ? Les articles seront dissociés.",
+    "articleCount": "{count} article(s)",
+    "manageSeries": "Gérer les séries",
+    "addToSeries": "Ajouter à une série",
+    "removeFromSeries": "Retirer de la série",
+    "seriesSection": "Séries d'articles",
+    "seriesEmpty": "Aucun article dans cette série pour l'instant."
   }
 }

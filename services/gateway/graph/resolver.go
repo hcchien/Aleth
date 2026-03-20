@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	graphql "github.com/graph-gophers/graphql-go"
 
@@ -15,8 +16,8 @@ import (
 var schemaString string
 
 // NewSchema builds the executable GraphQL schema for the gateway.
-func NewSchema(authClient *client.AuthClient, contentClient *client.ContentClient, feedClient *client.FeedClient) *graphql.Schema {
-	r := &Resolver{auth: authClient, content: contentClient, feed: feedClient}
+func NewSchema(authClient *client.AuthClient, contentClient *client.ContentClient, feedClient *client.FeedClient, notifClient *client.NotificationClient, federationClient *client.FederationClient) *graphql.Schema {
+	r := &Resolver{auth: authClient, content: contentClient, feed: feedClient, notif: notifClient, federation: federationClient}
 	return graphql.MustParseSchema(schemaString, r, graphql.UseStringDescriptions())
 }
 
@@ -60,9 +61,11 @@ func claimsFromCtx(ctx context.Context) (UserClaims, bool) {
 
 // Resolver is the root GraphQL resolver for the gateway.
 type Resolver struct {
-	auth    *client.AuthClient
-	content *client.ContentClient
-	feed    *client.FeedClient
+	auth       *client.AuthClient
+	content    *client.ContentClient
+	feed       *client.FeedClient
+	notif      *client.NotificationClient
+	federation *client.FederationClient
 }
 
 // contentGQL calls the Content service GraphQL endpoint, forwarding the auth header.
@@ -167,7 +170,7 @@ type BoardSettingsInput struct {
 // ─── Query resolvers ──────────────────────────────────────────────────────────
 
 func (r *Resolver) Me(ctx context.Context) (*UserResolver, error) {
-	data, err := r.authGQL(ctx, `{ me { id did username displayName email trustLevel createdAt } }`, nil)
+	data, err := r.authGQL(ctx, `{ me { id did username displayName email trustLevel apEnabled createdAt } }`, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -919,7 +922,9 @@ func (r *Resolver) UnfollowUser(ctx context.Context, args struct{ UserID graphql
 // ─── Content mutation resolvers ───────────────────────────────────────────────
 
 const postFields = `id authorId parentId rootId kind content noteTitle noteCover noteSummary resharedFromId replyCount likeCount isLiked viewerEmotion reactionCounts { emotion count } createdAt signatureInfo { isSigned isVerified contentHash signature algorithm explanation }`
-const articleFields = `id boardId authorId title slug contentMd status accessPolicy publishedAt createdAt updatedAt signatureInfo { isSigned isVerified contentHash signature algorithm explanation }`
+const articleFields = `id boardId authorId seriesId title slug contentMd status accessPolicy publishedAt createdAt updatedAt signatureInfo { isSigned isVerified contentHash signature algorithm explanation }`
+const seriesFields = `id boardId title description articleCount createdAt updatedAt`
+const seriesWithArticlesFields = `id boardId title description articleCount articles { ` + articleFields + ` } createdAt updatedAt`
 const boardFields = `id ownerId name description defaultAccess minTrustLevel commentPolicy minCommentTrust requireVcs { vcType issuer } requireCommentVcs { vcType issuer } subscriberCount isSubscribed createdAt`
 
 func (r *Resolver) CreatePost(ctx context.Context, args struct{ Input CreatePostInput }) (*PostResolver, error) {
@@ -1600,6 +1605,13 @@ type ArticleResolver struct {
 }
 
 func (ar *ArticleResolver) ID() graphql.ID       { return graphql.ID(ar.article.ID) }
+func (ar *ArticleResolver) SeriesId() *graphql.ID {
+	if ar.article.SeriesID == nil {
+		return nil
+	}
+	id := graphql.ID(*ar.article.SeriesID)
+	return &id
+}
 func (ar *ArticleResolver) Title() string        { return ar.article.Title }
 func (ar *ArticleResolver) Slug() string         { return ar.article.Slug }
 func (ar *ArticleResolver) ContentMd() *string   { return ar.article.ContentMd }
@@ -1707,6 +1719,27 @@ func (br *BoardResolver) Owner(ctx context.Context) (*UserResolver, error) {
 		return nil, fmt.Errorf("owner not found: %s", br.board.OwnerID)
 	}
 	return &UserResolver{user: *u, r: br.r}, nil
+}
+
+func (br *BoardResolver) Series(ctx context.Context) ([]*GatewaySeriesResolver, error) {
+	data, err := br.r.contentGQL(ctx,
+		`query($boardId: ID!) { boardSeries(boardId: $boardId) { `+seriesFields+` } }`,
+		map[string]any{"boardId": br.board.ID},
+	)
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		BoardSeries []client.ContentSeries `json:"boardSeries"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, err
+	}
+	out := make([]*GatewaySeriesResolver, len(resp.BoardSeries))
+	for i, s := range resp.BoardSeries {
+		out[i] = &GatewaySeriesResolver{series: s, r: br.r}
+	}
+	return out, nil
 }
 
 // PostConnectionResolver resolves the PostConnection GraphQL type.
@@ -2583,4 +2616,432 @@ func (r *Resolver) CreatePageArticle(ctx context.Context, args struct {
 		return nil, err
 	}
 	return r.articleWithEnrichment(ctx, resp.CreatePageArticle)
+}
+// ─── Series ───────────────────────────────────────────────────────────────────
+
+type GatewaySeriesResolver struct {
+	series client.ContentSeries
+	r      *Resolver
+}
+
+func (sr *GatewaySeriesResolver) ID() graphql.ID       { return graphql.ID(sr.series.ID) }
+func (sr *GatewaySeriesResolver) BoardId() graphql.ID  { return graphql.ID(sr.series.BoardID) }
+func (sr *GatewaySeriesResolver) Title() string        { return sr.series.Title }
+func (sr *GatewaySeriesResolver) Description() *string { return sr.series.Description }
+func (sr *GatewaySeriesResolver) ArticleCount() int32  { return sr.series.ArticleCount }
+func (sr *GatewaySeriesResolver) CreatedAt() string    { return sr.series.CreatedAt }
+func (sr *GatewaySeriesResolver) UpdatedAt() string    { return sr.series.UpdatedAt }
+
+func (sr *GatewaySeriesResolver) Articles(ctx context.Context) ([]*ArticleResolver, error) {
+	out := make([]*ArticleResolver, 0, len(sr.series.Articles))
+	for _, a := range sr.series.Articles {
+		ar, err := sr.r.articleWithEnrichment(ctx, a)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, ar)
+	}
+	return out, nil
+}
+
+func (r *Resolver) Series(ctx context.Context, args struct{ ID graphql.ID }) (*GatewaySeriesResolver, error) {
+	data, err := r.contentGQL(ctx,
+		`query($id: ID!) { series(id: $id) { `+seriesWithArticlesFields+` } }`,
+		map[string]any{"id": string(args.ID)},
+	)
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		Series *client.ContentSeries `json:"series"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, err
+	}
+	if resp.Series == nil {
+		return nil, nil
+	}
+	return &GatewaySeriesResolver{series: *resp.Series, r: r}, nil
+}
+
+func (r *Resolver) BoardSeries(ctx context.Context, args struct{ BoardId graphql.ID }) ([]*GatewaySeriesResolver, error) {
+	data, err := r.contentGQL(ctx,
+		`query($boardId: ID!) { boardSeries(boardId: $boardId) { `+seriesFields+` } }`,
+		map[string]any{"boardId": string(args.BoardId)},
+	)
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		BoardSeries []client.ContentSeries `json:"boardSeries"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, err
+	}
+	out := make([]*GatewaySeriesResolver, len(resp.BoardSeries))
+	for i, s := range resp.BoardSeries {
+		out[i] = &GatewaySeriesResolver{series: s, r: r}
+	}
+	return out, nil
+}
+
+type CreateSeriesInput struct {
+	BoardId     graphql.ID
+	Title       string
+	Description *string
+}
+
+type UpdateSeriesInput struct {
+	Title       string
+	Description *string
+}
+
+func (r *Resolver) CreateSeries(ctx context.Context, args struct{ Input CreateSeriesInput }) (*GatewaySeriesResolver, error) {
+	vars := map[string]any{
+		"boardId": string(args.Input.BoardId),
+		"title":   args.Input.Title,
+	}
+	if args.Input.Description != nil {
+		vars["description"] = *args.Input.Description
+	}
+	data, err := r.contentGQL(ctx,
+		`mutation($boardId: ID!, $title: String!, $description: String) {
+			createSeries(input: {boardId: $boardId, title: $title, description: $description}) { `+seriesFields+` }
+		}`,
+		vars,
+	)
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		CreateSeries client.ContentSeries `json:"createSeries"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, err
+	}
+	return &GatewaySeriesResolver{series: resp.CreateSeries, r: r}, nil
+}
+
+func (r *Resolver) UpdateSeries(ctx context.Context, args struct {
+	ID    graphql.ID
+	Input UpdateSeriesInput
+}) (*GatewaySeriesResolver, error) {
+	vars := map[string]any{
+		"id":    string(args.ID),
+		"title": args.Input.Title,
+	}
+	if args.Input.Description != nil {
+		vars["description"] = *args.Input.Description
+	}
+	data, err := r.contentGQL(ctx,
+		`mutation($id: ID!, $title: String!, $description: String) {
+			updateSeries(id: $id, input: {title: $title, description: $description}) { `+seriesFields+` }
+		}`,
+		vars,
+	)
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		UpdateSeries client.ContentSeries `json:"updateSeries"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, err
+	}
+	return &GatewaySeriesResolver{series: resp.UpdateSeries, r: r}, nil
+}
+
+func (r *Resolver) DeleteSeries(ctx context.Context, args struct{ ID graphql.ID }) (bool, error) {
+	data, err := r.contentGQL(ctx,
+		`mutation($id: ID!) { deleteSeries(id: $id) }`,
+		map[string]any{"id": string(args.ID)},
+	)
+	if err != nil {
+		return false, err
+	}
+	var resp struct {
+		DeleteSeries bool `json:"deleteSeries"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return false, err
+	}
+	return resp.DeleteSeries, nil
+}
+
+func (r *Resolver) AddArticleToSeries(ctx context.Context, args struct {
+	ArticleId graphql.ID
+	SeriesId  graphql.ID
+}) (*ArticleResolver, error) {
+	data, err := r.contentGQL(ctx,
+		`mutation($articleId: ID!, $seriesId: ID!) {
+			addArticleToSeries(articleId: $articleId, seriesId: $seriesId) { `+articleFields+` }
+		}`,
+		map[string]any{"articleId": string(args.ArticleId), "seriesId": string(args.SeriesId)},
+	)
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		AddArticleToSeries client.ContentArticle `json:"addArticleToSeries"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, err
+	}
+	return r.articleWithEnrichment(ctx, resp.AddArticleToSeries)
+}
+
+func (r *Resolver) RemoveArticleFromSeries(ctx context.Context, args struct{ ArticleId graphql.ID }) (*ArticleResolver, error) {
+	data, err := r.contentGQL(ctx,
+		`mutation($articleId: ID!) {
+			removeArticleFromSeries(articleId: $articleId) { `+articleFields+` }
+		}`,
+		map[string]any{"articleId": string(args.ArticleId)},
+	)
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		RemoveArticleFromSeries client.ContentArticle `json:"removeArticleFromSeries"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, err
+	}
+	return r.articleWithEnrichment(ctx, resp.RemoveArticleFromSeries)
+}
+
+// ─── Notification Resolvers ────────────────────────────────────────────────────
+
+// NotificationResolver wraps a GatewayNotification for GraphQL field resolution.
+type NotificationResolver struct {
+	n client.GatewayNotification
+}
+
+func (r *NotificationResolver) ID() graphql.ID     { return graphql.ID(r.n.ID) }
+func (r *NotificationResolver) Type() string       { return r.n.Type }
+func (r *NotificationResolver) ActorId() graphql.ID { return graphql.ID(r.n.ActorID) }
+func (r *NotificationResolver) EntityType() string  { return r.n.EntityType }
+func (r *NotificationResolver) EntityId() graphql.ID { return graphql.ID(r.n.EntityID) }
+func (r *NotificationResolver) Read() bool          { return r.n.Read }
+func (r *NotificationResolver) CreatedAt() string   { return r.n.CreatedAt }
+
+// Notifications returns the authenticated user's most recent notifications.
+// Returns an empty list for unauthenticated requests.
+func (r *Resolver) Notifications(ctx context.Context, args struct{ Limit *int32 }) ([]*NotificationResolver, error) {
+	if r.notif == nil {
+		return []*NotificationResolver{}, nil
+	}
+	authHeader := authHeaderFromCtx(ctx)
+	if authHeader == "" {
+		return []*NotificationResolver{}, nil
+	}
+	limit := 50
+	if args.Limit != nil && *args.Limit > 0 {
+		limit = int(*args.Limit)
+	}
+	items, err := r.notif.List(ctx, authHeader, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list notifications: %w", err)
+	}
+	out := make([]*NotificationResolver, len(items))
+	for i, n := range items {
+		n := n // capture
+		out[i] = &NotificationResolver{n: n}
+	}
+	return out, nil
+}
+
+// NotificationCount returns the number of unread notifications for the authenticated user.
+func (r *Resolver) NotificationCount(ctx context.Context) (int32, error) {
+	if r.notif == nil {
+		return 0, nil
+	}
+	authHeader := authHeaderFromCtx(ctx)
+	if authHeader == "" {
+		return 0, nil
+	}
+	count, err := r.notif.GetCount(ctx, authHeader)
+	if err != nil {
+		return 0, fmt.Errorf("notification count: %w", err)
+	}
+	return int32(count), nil
+}
+
+// MarkNotificationsRead marks the specified notifications as read.
+// If ids is nil or empty, marks all unread notifications as read.
+func (r *Resolver) MarkNotificationsRead(ctx context.Context, args struct{ Ids *[]graphql.ID }) (bool, error) {
+	if r.notif == nil {
+		return true, nil
+	}
+	authHeader := authHeaderFromCtx(ctx)
+	if authHeader == "" {
+		return false, fmt.Errorf("unauthorized")
+	}
+	var ids []string
+	if args.Ids != nil {
+		for _, id := range *args.Ids {
+			ids = append(ids, string(id))
+		}
+	}
+	if err := r.notif.MarkRead(ctx, authHeader, ids); err != nil {
+		return false, fmt.Errorf("mark notifications read: %w", err)
+	}
+	return true, nil
+}
+
+// ─── Fediverse resolvers ──────────────────────────────────────────────────────
+
+// FollowRemoteActor sends a Follow activity to a remote AP actor on behalf of the viewer.
+// handle can be "@user@threads.net" or a direct actor URL.
+func (r *Resolver) FollowRemoteActor(ctx context.Context, args struct{ Handle string }) (bool, error) {
+	claims, ok := claimsFromCtx(ctx)
+	if !ok || claims.Username == "" {
+		return false, fmt.Errorf("unauthorized")
+	}
+	if r.federation == nil {
+		return false, fmt.Errorf("federation service not configured")
+	}
+	if err := r.federation.FollowRemoteActor(ctx, claims.Username, args.Handle); err != nil {
+		return false, fmt.Errorf("follow remote actor: %w", err)
+	}
+	return true, nil
+}
+
+// UnfollowRemoteActor sends an Undo(Follow) activity to a remote AP actor.
+func (r *Resolver) UnfollowRemoteActor(ctx context.Context, args struct{ ActorURL string }) (bool, error) {
+	claims, ok := claimsFromCtx(ctx)
+	if !ok || claims.Username == "" {
+		return false, fmt.Errorf("unauthorized")
+	}
+	if r.federation == nil {
+		return false, fmt.Errorf("federation service not configured")
+	}
+	if err := r.federation.UnfollowRemoteActor(ctx, claims.Username, args.ActorURL); err != nil {
+		return false, fmt.Errorf("unfollow remote actor: %w", err)
+	}
+	return true, nil
+}
+
+// MyRemoteFollowing returns the list of remote AP actors the viewer follows.
+func (r *Resolver) MyRemoteFollowing(ctx context.Context) ([]*RemoteActorResolver, error) {
+	claims, ok := claimsFromCtx(ctx)
+	if !ok || claims.Username == "" {
+		return []*RemoteActorResolver{}, nil
+	}
+	if r.federation == nil {
+		return []*RemoteActorResolver{}, nil
+	}
+	list, err := r.federation.ListRemoteFollowing(ctx, claims.Username)
+	if err != nil {
+		return nil, fmt.Errorf("list remote following: %w", err)
+	}
+	out := make([]*RemoteActorResolver, len(list))
+	for i, f := range list {
+		out[i] = &RemoteActorResolver{f: f}
+	}
+	return out, nil
+}
+
+// MyRemoteFeed returns posts received from remote AP actors the viewer follows.
+func (r *Resolver) MyRemoteFeed(ctx context.Context, args struct {
+	Limit  *int32
+	Before *string
+}) (*RemotePostConnectionResolver, error) {
+	claims, ok := claimsFromCtx(ctx)
+	if !ok || claims.Username == "" {
+		return &RemotePostConnectionResolver{}, nil
+	}
+	if r.federation == nil {
+		return &RemotePostConnectionResolver{}, nil
+	}
+	limit := 20
+	if args.Limit != nil {
+		limit = int(*args.Limit)
+	}
+	before := ""
+	if args.Before != nil {
+		before = *args.Before
+	}
+	page, err := r.federation.ListRemotePosts(ctx, claims.Username, limit, before)
+	if err != nil {
+		return nil, fmt.Errorf("list remote posts: %w", err)
+	}
+	return &RemotePostConnectionResolver{page: page}, nil
+}
+
+// ─── RemoteActorResolver ──────────────────────────────────────────────────────
+
+type RemoteActorResolver struct {
+	f client.RemoteFollowing
+}
+
+func (r *RemoteActorResolver) ActorURL() string { return r.f.ActorURL }
+func (r *RemoteActorResolver) Handle() string   { return actorURLToHandle(r.f.ActorURL) }
+func (r *RemoteActorResolver) Accepted() bool   { return r.f.Accepted }
+func (r *RemoteActorResolver) CreatedAt() string { return r.f.CreatedAt }
+
+// ─── RemotePostConnectionResolver ────────────────────────────────────────────
+
+type RemotePostConnectionResolver struct {
+	page *client.RemotePostPage
+}
+
+func (r *RemotePostConnectionResolver) Posts() []*RemotePostResolver {
+	if r.page == nil {
+		return nil
+	}
+	out := make([]*RemotePostResolver, len(r.page.Posts))
+	for i, p := range r.page.Posts {
+		out[i] = &RemotePostResolver{p: p}
+	}
+	return out
+}
+
+func (r *RemotePostConnectionResolver) HasMore() bool {
+	if r.page == nil {
+		return false
+	}
+	return r.page.HasMore
+}
+
+// ─── RemotePostResolver ───────────────────────────────────────────────────────
+
+type RemotePostResolver struct {
+	p client.RemotePost
+}
+
+func (r *RemotePostResolver) ID() graphql.ID  { return graphql.ID(r.p.ID) }
+func (r *RemotePostResolver) ActorURL() string { return r.p.ActorURL }
+func (r *RemotePostResolver) Handle() string   { return actorURLToHandle(r.p.ActorURL) }
+func (r *RemotePostResolver) Content() string  { return r.p.Content }
+func (r *RemotePostResolver) PublishedAt() string { return r.p.PublishedAt }
+
+// actorURLToHandle converts "https://threads.net/users/hcchien" → "@hcchien@threads.net".
+func actorURLToHandle(actorURL string) string {
+	// Try to extract user + domain from common AP actor URL patterns.
+	// https://threads.net/users/hcchien → @hcchien@threads.net
+	// https://mastodon.social/users/hcchien → @hcchien@mastodon.social
+	s := actorURL
+	for _, prefix := range []string{"https://", "http://"} {
+		s = strings.TrimPrefix(s, prefix)
+	}
+	// s is now "domain/users/username" or "domain/@username"
+	parts := strings.SplitN(s, "/", 3)
+	if len(parts) < 2 {
+		return actorURL
+	}
+	domain := parts[0]
+	var username string
+	if len(parts) == 3 {
+		username = strings.TrimPrefix(parts[2], "@")
+	} else {
+		username = strings.TrimPrefix(parts[1], "@")
+	}
+	// Strip query strings and fragments from username.
+	if i := strings.IndexAny(username, "?#"); i >= 0 {
+		username = username[:i]
+	}
+	if username == "" {
+		return actorURL
+	}
+	return "@" + username + "@" + domain
 }

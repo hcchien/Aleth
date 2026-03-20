@@ -80,10 +80,33 @@ type Post {
   signatureInfo: SignatureInfo!
 }
 
+type Series {
+  id: ID!
+  boardId: ID!
+  title: String!
+  description: String
+  articleCount: Int!
+  articles: [Article!]!
+  createdAt: String!
+  updatedAt: String!
+}
+
+input CreateSeriesInput {
+  boardId: ID!
+  title: String!
+  description: String
+}
+
+input UpdateSeriesInput {
+  title: String!
+  description: String
+}
+
 type Article {
   id: ID!
   board: Board!
   author: User!
+  seriesId: ID
   title: String!
   slug: String!
   contentMd: String
@@ -146,6 +169,7 @@ type Board {
   subscriberCount: Int!
   isSubscribed: Boolean!
   writePolicy: BoardWritePolicy!
+  series: [Series!]!
   createdAt: String!
 }
 
@@ -274,6 +298,22 @@ input PagePolicyInput {
   minCommentTrust: Int
 }
 
+# --- From Notification Service ---
+
+type Notification {
+  id: ID!
+  # Notification type: "reply" | "reshare" | "comment" | "page_post"
+  type: String!
+  # UUID of the user who triggered the notification (the actor).
+  actorId: ID!
+  # Type of the entity that triggered the notification: "post" | "comment".
+  entityType: String!
+  # UUID of the post or comment that triggered the notification.
+  entityId: ID!
+  read: Boolean!
+  createdAt: String!
+}
+
 # --- From Feed Service ---
 
 type FeedItem {
@@ -318,6 +358,10 @@ type Query {
   pageMembers(pageId: ID!): PageMemberConnection!
   myPages: [FanPage!]!
 
+  # Series
+  series(id: ID!): Series
+  boardSeries(boardId: ID!): [Series!]!
+
   # VC registry
   availableVcTypes: [VcTypeInfo!]!
 
@@ -327,6 +371,41 @@ type Query {
   # Progressive loading: friends of the viewer who reacted to a post.
   # Returns [] for unauthenticated requests.
   postFriendReactors(postId: ID!, limit: Int): [FriendReactor!]!
+
+  # Notifications (requires authentication; returns [] for unauthenticated requests)
+  notifications(limit: Int): [Notification!]!
+  notificationCount: Int!
+
+  # Fediverse — remote actors followed by the authenticated user
+  myRemoteFollowing: [RemoteActor!]!
+  # Fediverse — posts received from remote actors the user follows
+  myRemoteFeed(limit: Int, before: String): RemotePostConnection!
+}
+
+# --- ActivityPub / Fediverse ---
+
+"""A remote ActivityPub actor that a local user follows (e.g. a Threads account)."""
+type RemoteActor {
+  actorURL: String!
+  """Human-readable handle derived from the actor URL, e.g. @user@threads.net"""
+  handle: String!
+  """True once the remote server has sent Accept(Follow)."""
+  accepted: Boolean!
+  createdAt: String!
+}
+
+"""A post received from a remote fediverse account."""
+type RemotePost {
+  id: ID!
+  actorURL: String!
+  handle: String!
+  content: String!
+  publishedAt: String!
+}
+
+type RemotePostConnection {
+  posts: [RemotePost!]!
+  hasMore: Boolean!
 }
 
 # --- Reputation (L2 stamp scoring) ---
@@ -365,6 +444,9 @@ type Mutation {
   verifyPhoneOTP(phone: String!, code: String!): AuthPayload!
   # ActivityPub federation opt-in/out
   setActivityPubEnabled(enabled: Boolean!): Boolean!
+  # Fediverse — follow / unfollow a remote AP actor (e.g. @user@threads.net)
+  followRemoteActor(handle: String!): Boolean!
+  unfollowRemoteActor(actorURL: String!): Boolean!
 
   # Content
   createPost(input: CreatePostInput!): Post!
@@ -396,9 +478,19 @@ type Mutation {
   removePageMember(pageId: ID!, userId: ID!): Boolean!
   createPagePost(pageId: ID!, content: String!): Post!
   createPageArticle(pageId: ID!, title: String!, contentMd: String, accessPolicy: String!): Article!
+  # Series
+  createSeries(input: CreateSeriesInput!): Series!
+  updateSeries(id: ID!, input: UpdateSeriesInput!): Series!
+  deleteSeries(id: ID!): Boolean!
+  addArticleToSeries(articleId: ID!, seriesId: ID!): Article!
+  removeArticleFromSeries(articleId: ID!): Article!
   # VC registry management
   registerVcType(input: RegisterVcTypeInput!): VcTypeInfo!
   disableVcType(vcType: String!, issuer: String!): Boolean!
+
+  # Notifications
+  # Pass specific ids to mark those notifications as read; omit ids to mark all.
+  markNotificationsRead(ids: [ID!]): Boolean!
 }
 
 # VC type registry

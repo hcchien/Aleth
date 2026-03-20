@@ -23,14 +23,24 @@ type store interface {
 	MarkRead(ctx context.Context, userID uuid.UUID, ids []uuid.UUID) error
 }
 
+// ContentStore is the subset of the content DB used by the notification service.
+// Implemented by contentdb.Pool; may be nil if NOTIFICATION_CONTENT_DATABASE_URL
+// is not configured (page-follower fan-out is then disabled).
+type ContentStore interface {
+	ListPageFollowers(ctx context.Context, pageID uuid.UUID) ([]uuid.UUID, error)
+}
+
 // NotificationService handles notification creation and retrieval.
 type NotificationService struct {
 	db        store
+	contentDB ContentStore // nil when content DB is not configured
 	readQueue *ReadQueue
 }
 
-func NewNotificationService(db store) *NotificationService {
-	return &NotificationService{db: db, readQueue: NewReadQueue(512)}
+// NewNotificationService creates the service. contentDB may be nil — when nil,
+// page-follower fan-out is silently skipped.
+func NewNotificationService(db store, contentDB ContentStore) *NotificationService {
+	return &NotificationService{db: db, contentDB: contentDB, readQueue: NewReadQueue(512)}
 }
 
 // ReadQueue is a bounded in-process async queue for mark-read operations.
@@ -107,6 +117,7 @@ type postCreatedPayload struct {
 	PostID         string  `json:"post_id"`
 	AuthorID       string  `json:"author_id"`
 	Kind           string  `json:"kind"`
+	PageID         *string `json:"page_id,omitempty"`
 	ParentID       *string `json:"parent_id,omitempty"`
 	ParentAuthorID *string `json:"parent_author_id,omitempty"`
 }
@@ -188,6 +199,42 @@ func (s *NotificationService) handlePostCreated(ctx context.Context, data []byte
 			return fmt.Errorf("create notification: %w", err)
 		}
 	}
+
+	// Fan-out page_post notifications to all page followers.
+	// Only top-level posts (no parent) on a page trigger follower notifications.
+	if p.PageID != nil && p.ParentID == nil && s.contentDB != nil {
+		pageID, err := uuid.Parse(*p.PageID)
+		if err != nil {
+			// Invalid page_id — log and skip fan-out rather than failing the event.
+			log.Warn().Str("page_id", *p.PageID).Msg("page_post fan-out: invalid page_id, skipping")
+			return nil
+		}
+		followerIDs, err := s.contentDB.ListPageFollowers(ctx, pageID)
+		if err != nil {
+			log.Error().Err(err).Str("page_id", *p.PageID).Msg("page_post fan-out: list followers failed")
+			// Best-effort: don't propagate the error — other notifications already sent.
+			return nil
+		}
+		for _, followerID := range followerIDs {
+			if followerID == actorID {
+				continue // don't notify the post author about their own post
+			}
+			if err := s.db.CreateNotification(ctx, db.CreateNotificationParams{
+				UserID:     followerID,
+				Type:       "page_post",
+				ActorID:    actorID,
+				EntityType: "post",
+				EntityID:   entityID,
+			}); err != nil {
+				log.Error().Err(err).
+					Str("follower_id", followerID.String()).
+					Str("post_id", entityID.String()).
+					Msg("page_post fan-out: create notification failed")
+				// Continue notifying remaining followers.
+			}
+		}
+	}
+
 	return nil
 }
 

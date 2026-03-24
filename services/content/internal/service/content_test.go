@@ -367,7 +367,7 @@ func TestBoardAndPostFlows(t *testing.T) {
 		t.Fatalf("GetBoardByID error: %v", err)
 	}
 
-	if _, err := s.CreatePost(ctx, owner, "  hello ", 0, nil); err != nil {
+	if _, err := s.CreatePost(ctx, owner, "  hello ", nil, 0, nil); err != nil {
 		t.Fatalf("CreatePost error: %v", err)
 	}
 	if _, err := s.ListPosts(ctx, nil, 20, nil); err != nil {
@@ -418,10 +418,10 @@ func TestValidationAndReplyBranches(t *testing.T) {
 	ctx := context.Background()
 	uid := uuid.New()
 
-	if _, err := s.CreatePost(ctx, uid, "   ", 0, nil); err == nil {
+	if _, err := s.CreatePost(ctx, uid, "   ", nil, 0, nil); err == nil {
 		t.Fatalf("expected empty content error")
 	}
-	if _, err := s.CreatePost(ctx, uid, strings.Repeat("a", 501), 0, nil); err == nil {
+	if _, err := s.CreatePost(ctx, uid, strings.Repeat("a", 501), nil, 0, nil); err == nil {
 		t.Fatalf("expected max length error")
 	}
 
@@ -580,7 +580,7 @@ func TestContentSigningAndVerification(t *testing.T) {
 	s.SetSigningSecret("signing-secret")
 
 	author := uuid.New()
-	post, err := s.CreatePost(context.Background(), author, "hello signed world", 0, nil)
+	post, err := s.CreatePost(context.Background(), author, "hello signed world", nil, 0, nil)
 	if err != nil {
 		t.Fatalf("CreatePost error: %v", err)
 	}
@@ -599,7 +599,7 @@ func TestContentSigningFailsAfterTamper(t *testing.T) {
 	s.SetSigningSecret("signing-secret")
 
 	author := uuid.New()
-	post, err := s.CreatePost(context.Background(), author, "original", 0, nil)
+	post, err := s.CreatePost(context.Background(), author, "original", nil, 0, nil)
 	if err != nil {
 		t.Fatalf("CreatePost error: %v", err)
 	}
@@ -712,7 +712,7 @@ func TestSignatureNonFatal(t *testing.T) {
 		return errors.New("db unavailable")
 	}
 	// CreatePost should succeed even if signature update fails
-	post, err := s.CreatePost(context.Background(), uuid.New(), "content", 0, nil)
+	post, err := s.CreatePost(context.Background(), uuid.New(), "content", nil, 0, nil)
 	if err != nil {
 		t.Fatalf("expected no error on non-fatal signature failure, got %v", err)
 	}
@@ -1125,7 +1125,7 @@ func TestCreatePost_PublishesPostCreatedEvent(t *testing.T) {
 	s, pub := newServiceWithCapture(st)
 	authorID := uuid.New()
 
-	post, err := s.CreatePost(context.Background(), authorID, "hello world", 0, nil)
+	post, err := s.CreatePost(context.Background(), authorID, "hello world", nil, 0, nil)
 	if err != nil {
 		t.Fatalf("CreatePost error: %v", err)
 	}
@@ -1426,7 +1426,7 @@ func TestCreatePost_DBError_NoEventPublished(t *testing.T) {
 	}
 
 	s, pub := newServiceWithCapture(st)
-	_, err := s.CreatePost(context.Background(), uuid.New(), "hello", 0, nil)
+	_, err := s.CreatePost(context.Background(), uuid.New(), "hello", nil, 0, nil)
 	if err == nil {
 		t.Fatal("expected error from DB")
 	}

@@ -70,15 +70,15 @@ if ! command -v "$GOOSE" &>/dev/null; then
 else
   load_env "$REPO/services/auth/.env"
   log "Migrating auth DB…"
-  "$GOOSE" -dir "$REPO/migrations/auth" postgres "$AUTH_DATABASE_URL" up
+  "$GOOSE" -dir "$REPO/migrations/auth" postgres "$AUTH_DATABASE_URL" up || log "auth migrations already up-to-date (or skipped)"
 
   load_env "$REPO/services/content/.env"
   log "Migrating content DB…"
-  "$GOOSE" -dir "$REPO/migrations/content" postgres "$CONTENT_DATABASE_URL" up
+  "$GOOSE" -dir "$REPO/migrations/content" postgres "$CONTENT_DATABASE_URL" up || log "content migrations already up-to-date (or skipped)"
 
   load_env "$REPO/services/notification/.env"
   log "Migrating notification DB…"
-  "$GOOSE" -table goose_notification_versions -dir "$REPO/migrations/notification" postgres "$NOTIFICATION_DATABASE_URL" up
+  "$GOOSE" -table goose_notification_versions -dir "$REPO/migrations/notification" postgres "$NOTIFICATION_DATABASE_URL" up || log "notification migrations already up-to-date (or skipped)"
 fi
 
 # ── build services ─────────────────────────────────────────────────────────────
@@ -115,11 +115,11 @@ load_env "$REPO/services/feed/.env"
 echo $! >> "$PIDS_FILE"
 wait_port localhost 8083 "feed service"
 
-log "Starting notification service on :8084…"
+log "Starting notification service on :8086…"
 load_env "$REPO/services/notification/.env"
 /tmp/aleth-notification 2>&1 | sed 's/^/[notif]   /' &
 echo $! >> "$PIDS_FILE"
-wait_port localhost 8084 "notification service"
+wait_port localhost 8086 "notification service"
 
 log "Starting gateway on :4000…"
 load_env "$REPO/services/gateway/.env"
@@ -135,7 +135,7 @@ cat <<EOF
    Auth:         http://localhost:8081/healthz
    Content:      http://localhost:8082/healthz
    Feed:         http://localhost:8083/healthz
-   Notification: http://localhost:8084/healthz
+   Notification: http://localhost:8086/healthz
    Gateway:      http://localhost:4000/graphql
 
 Start the web app in another terminal:

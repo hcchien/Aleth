@@ -72,6 +72,7 @@ type Post struct {
 	NoteTitle      *string
 	NoteCover      *string
 	NoteSummary    *string
+	ImageURLs      []string
 	ResharedFromID *uuid.UUID
 	PageID         *uuid.UUID
 	ReachScore     float64
@@ -301,23 +302,28 @@ type CreatePostParams struct {
 	ParentID         *uuid.UUID
 	RootID           *uuid.UUID
 	Content          string
+	ImageURLs        []string
 	AuthorTrustLevel int
 	PageID           *uuid.UUID
 }
 
 func (p *Pool) CreatePost(ctx context.Context, params CreatePostParams) (Post, error) {
 	const q = `
-		INSERT INTO posts (author_id, parent_id, root_id, content, reach_score, page_id)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO posts (author_id, parent_id, root_id, content, image_urls, reach_score, page_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING id, author_id, parent_id, root_id, kind, content,
-		          note_title, note_cover, note_summary, reshared_from_id, page_id,
+		          note_title, note_cover, note_summary, image_urls, reshared_from_id, page_id,
 		          reach_score, signature, created_at, deleted_at,
 		          0::bigint AS like_count, 0::bigint AS reply_count, false AS is_liked,
 		          NULL::text AS viewer_emotion
 	`
+	imageURLs := params.ImageURLs
+	if imageURLs == nil {
+		imageURLs = []string{}
+	}
 	initialReachScore := TrustMultiplier(params.AuthorTrustLevel)
 	return scanPost(p.pool.QueryRow(ctx, q,
-		params.AuthorID, params.ParentID, params.RootID, params.Content, initialReachScore, params.PageID))
+		params.AuthorID, params.ParentID, params.RootID, params.Content, imageURLs, initialReachScore, params.PageID))
 }
 
 // GetPostByID returns a post with computed like/reply counts and isLiked for viewerID.
@@ -325,7 +331,7 @@ func (p *Pool) CreatePost(ctx context.Context, params CreatePostParams) (Post, e
 func (p *Pool) GetPostByID(ctx context.Context, id uuid.UUID, viewerID *uuid.UUID) (Post, error) {
 	const q = `
 		SELECT p.id, p.author_id, p.parent_id, p.root_id, p.kind, p.content,
-		       p.note_title, p.note_cover, p.note_summary, p.reshared_from_id, p.page_id,
+		       p.note_title, p.note_cover, p.note_summary, p.image_urls, p.reshared_from_id, p.page_id,
 		       p.reach_score, p.signature, p.created_at, p.deleted_at,
 		       (SELECT COUNT(*) FROM post_likes WHERE post_id = p.id) AS like_count,
 		       (SELECT COUNT(*) FROM posts WHERE parent_id = p.id AND deleted_at IS NULL) AS reply_count,
@@ -351,7 +357,7 @@ func (p *Pool) ListPosts(ctx context.Context, params ListPostsParams) ([]Post, e
 
 	const q = `
 		SELECT p.id, p.author_id, p.parent_id, p.root_id, p.kind, p.content,
-		       p.note_title, p.note_cover, p.note_summary, p.reshared_from_id, p.page_id,
+		       p.note_title, p.note_cover, p.note_summary, p.image_urls, p.reshared_from_id, p.page_id,
 		       p.reach_score, p.signature, p.created_at, p.deleted_at,
 		       (SELECT COUNT(*) FROM post_likes WHERE post_id = p.id) AS like_count,
 		       (SELECT COUNT(*) FROM posts WHERE parent_id = p.id AND deleted_at IS NULL) AS reply_count,
@@ -387,7 +393,7 @@ func (p *Pool) ListPostReplies(ctx context.Context, params ListPostRepliesParams
 
 	const q = `
 		SELECT p.id, p.author_id, p.parent_id, p.root_id, p.kind, p.content,
-		       p.note_title, p.note_cover, p.note_summary, p.reshared_from_id, p.page_id,
+		       p.note_title, p.note_cover, p.note_summary, p.image_urls, p.reshared_from_id, p.page_id,
 		       p.reach_score, p.signature, p.created_at, p.deleted_at,
 		       (SELECT COUNT(*) FROM post_likes WHERE post_id = p.id) AS like_count,
 		       (SELECT COUNT(*) FROM posts WHERE parent_id = p.id AND deleted_at IS NULL) AS reply_count,
@@ -479,7 +485,7 @@ func scanPost(row pgx.Row) (Post, error) {
 	var post Post
 	err := row.Scan(
 		&post.ID, &post.AuthorID, &post.ParentID, &post.RootID, &post.Kind, &post.Content,
-		&post.NoteTitle, &post.NoteCover, &post.NoteSummary, &post.ResharedFromID, &post.PageID,
+		&post.NoteTitle, &post.NoteCover, &post.NoteSummary, &post.ImageURLs, &post.ResharedFromID, &post.PageID,
 		&post.ReachScore, &post.Signature, &post.CreatedAt, &post.DeletedAt,
 		&post.LikeCount, &post.ReplyCount, &post.IsLiked, &post.ViewerEmotion,
 	)
@@ -495,7 +501,7 @@ func collectPosts(rows pgx.Rows) ([]Post, error) {
 		var post Post
 		err := rows.Scan(
 			&post.ID, &post.AuthorID, &post.ParentID, &post.RootID, &post.Kind, &post.Content,
-			&post.NoteTitle, &post.NoteCover, &post.NoteSummary, &post.ResharedFromID, &post.PageID,
+			&post.NoteTitle, &post.NoteCover, &post.NoteSummary, &post.ImageURLs, &post.ResharedFromID, &post.PageID,
 			&post.ReachScore, &post.Signature, &post.CreatedAt, &post.DeletedAt,
 			&post.LikeCount, &post.ReplyCount, &post.IsLiked, &post.ViewerEmotion,
 		)
@@ -520,7 +526,7 @@ func (p *Pool) ResharePost(ctx context.Context, params ResharePostParams) (Post,
 		INSERT INTO posts (author_id, content, kind, reshared_from_id)
 		VALUES ($1, $2, 'post', $3)
 		RETURNING id, author_id, parent_id, root_id, kind, content,
-		          note_title, note_cover, note_summary, reshared_from_id, page_id,
+		          note_title, note_cover, note_summary, image_urls, reshared_from_id, page_id,
 		          reach_score, signature, created_at, deleted_at,
 		          0::bigint AS like_count, 0::bigint AS reply_count, false AS is_liked,
 		          NULL::text AS viewer_emotion
@@ -545,7 +551,7 @@ func (p *Pool) CreateNote(ctx context.Context, params CreateNoteParams) (Post, e
 		INSERT INTO posts (author_id, content, kind, note_title, note_cover, note_summary, reach_score)
 		VALUES ($1, $2, 'note', $3, $4, $5, $6)
 		RETURNING id, author_id, parent_id, root_id, kind, content,
-		          note_title, note_cover, note_summary, reshared_from_id, page_id,
+		          note_title, note_cover, note_summary, image_urls, reshared_from_id, page_id,
 		          reach_score, signature, created_at, deleted_at,
 		          0::bigint AS like_count, 0::bigint AS reply_count, false AS is_liked,
 		          NULL::text AS viewer_emotion
@@ -569,7 +575,7 @@ func (p *Pool) ListNotes(ctx context.Context, params ListNotesParams) ([]Post, e
 	}
 	const q = `
 		SELECT p.id, p.author_id, p.parent_id, p.root_id, p.kind, p.content,
-		       p.note_title, p.note_cover, p.note_summary, p.reshared_from_id, p.page_id,
+		       p.note_title, p.note_cover, p.note_summary, p.image_urls, p.reshared_from_id, p.page_id,
 		       p.reach_score, p.signature, p.created_at, p.deleted_at,
 		       (SELECT COUNT(*) FROM post_likes WHERE post_id = p.id) AS like_count,
 		       (SELECT COUNT(*) FROM posts WHERE parent_id = p.id AND deleted_at IS NULL) AS reply_count,
@@ -601,7 +607,7 @@ func (p *Pool) ListPublicPostsByAuthor(ctx context.Context, authorID uuid.UUID, 
 	}
 	const q = `
 		SELECT id, author_id, parent_id, root_id, kind, content,
-		       note_title, note_cover, note_summary, reshared_from_id, page_id,
+		       note_title, note_cover, note_summary, image_urls, reshared_from_id, page_id,
 		       reach_score, signature, created_at, deleted_at,
 		       0::bigint AS like_count, 0::bigint AS reply_count,
 		       false AS is_liked, NULL::text AS viewer_emotion
@@ -1293,7 +1299,7 @@ func (p *Pool) ListPagePosts(ctx context.Context, params ListPagePostsParams) ([
 	}
 	const q = `
         SELECT p.id, p.author_id, p.parent_id, p.root_id, p.kind, p.content,
-               p.note_title, p.note_cover, p.note_summary, p.reshared_from_id, p.page_id,
+               p.note_title, p.note_cover, p.note_summary, p.image_urls, p.reshared_from_id, p.page_id,
                p.reach_score, p.signature, p.created_at, p.deleted_at,
                (SELECT COUNT(*) FROM post_likes WHERE post_id = p.id) AS like_count,
                (SELECT COUNT(*) FROM posts WHERE parent_id = p.id AND deleted_at IS NULL) AS reply_count,
@@ -1352,7 +1358,7 @@ func (p *Pool) ListPublicPostsByPage(ctx context.Context, pageID uuid.UUID, limi
 	}
 	const q = `
         SELECT id, author_id, parent_id, root_id, kind, content,
-               note_title, note_cover, note_summary, reshared_from_id, page_id,
+               note_title, note_cover, note_summary, image_urls, reshared_from_id, page_id,
                reach_score, signature, created_at, deleted_at,
                0::bigint AS like_count, 0::bigint AS reply_count,
                false AS is_liked, NULL::text AS viewer_emotion

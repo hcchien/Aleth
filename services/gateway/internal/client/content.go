@@ -18,6 +18,7 @@ type ContentPost struct {
 	NoteTitle      *string                `json:"noteTitle"`
 	NoteCover      *string                `json:"noteCover"`
 	NoteSummary    *string                `json:"noteSummary"`
+	ImageURLs      []string               `json:"imageUrls"`
 	ResharedFromID *string                `json:"resharedFromId"`
 	ReplyCount     int32                  `json:"replyCount"`
 	LikeCount      int32                  `json:"likeCount"`

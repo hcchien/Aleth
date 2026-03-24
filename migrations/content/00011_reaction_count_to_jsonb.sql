@@ -1,3 +1,4 @@
+-- +goose Up
 -- Upgrade reaction_count INT → reaction_counts JSONB.
 --
 -- The INT counter (added in 00010) tracked only a grand total, so the feed

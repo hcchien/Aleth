@@ -134,7 +134,8 @@ type PasskeyAssertionInput struct {
 }
 
 type CreatePostInput struct {
-	Content string
+	Content   string
+	ImageUrls *[]string
 }
 
 type CreateNoteInput struct {
@@ -700,7 +701,7 @@ func (r *Resolver) feedConnToResolver(conn *client.GatewayFeedConnection) *FeedC
 
 // ─── Auth mutation resolvers ──────────────────────────────────────────────────
 
-const authUserFields = `id did username displayName email trustLevel createdAt`
+const authUserFields = `id did username displayName email trustLevel apEnabled createdAt`
 const authPayloadFields = `accessToken refreshToken user { ` + authUserFields + ` }`
 
 func (r *Resolver) Register(ctx context.Context, args struct{ Input RegisterInput }) (*AuthPayloadResolver, error) {
@@ -921,16 +922,20 @@ func (r *Resolver) UnfollowUser(ctx context.Context, args struct{ UserID graphql
 
 // ─── Content mutation resolvers ───────────────────────────────────────────────
 
-const postFields = `id authorId parentId rootId kind content noteTitle noteCover noteSummary resharedFromId replyCount likeCount isLiked viewerEmotion reactionCounts { emotion count } createdAt signatureInfo { isSigned isVerified contentHash signature algorithm explanation }`
+const postFields = `id authorId parentId rootId kind content noteTitle noteCover noteSummary imageUrls resharedFromId replyCount likeCount isLiked viewerEmotion reactionCounts { emotion count } createdAt signatureInfo { isSigned isVerified contentHash signature algorithm explanation }`
 const articleFields = `id boardId authorId seriesId title slug contentMd status accessPolicy publishedAt createdAt updatedAt signatureInfo { isSigned isVerified contentHash signature algorithm explanation }`
 const seriesFields = `id boardId title description articleCount createdAt updatedAt`
 const seriesWithArticlesFields = `id boardId title description articleCount articles { ` + articleFields + ` } createdAt updatedAt`
 const boardFields = `id ownerId name description defaultAccess minTrustLevel commentPolicy minCommentTrust requireVcs { vcType issuer } requireCommentVcs { vcType issuer } subscriberCount isSubscribed createdAt`
 
 func (r *Resolver) CreatePost(ctx context.Context, args struct{ Input CreatePostInput }) (*PostResolver, error) {
+	inputMap := map[string]any{"content": args.Input.Content}
+	if args.Input.ImageUrls != nil && len(*args.Input.ImageUrls) > 0 {
+		inputMap["imageUrls"] = *args.Input.ImageUrls
+	}
 	data, err := r.contentGQL(ctx,
 		`mutation($input: CreatePostInput!) { createPost(input: $input) { `+postFields+` } }`,
-		map[string]any{"input": map[string]any{"content": args.Input.Content}},
+		map[string]any{"input": inputMap},
 	)
 	if err != nil {
 		return nil, err
@@ -1530,6 +1535,12 @@ func (pr *PostResolver) Kind() string         { return pr.post.Kind }
 func (pr *PostResolver) NoteTitle() *string   { return pr.post.NoteTitle }
 func (pr *PostResolver) NoteCover() *string   { return pr.post.NoteCover }
 func (pr *PostResolver) NoteSummary() *string { return pr.post.NoteSummary }
+func (pr *PostResolver) ImageUrls() []string {
+	if pr.post.ImageURLs == nil {
+		return []string{}
+	}
+	return pr.post.ImageURLs
+}
 func (pr *PostResolver) ResharedFromId() *graphql.ID {
 	if pr.post.ResharedFromID == nil {
 		return nil
@@ -2077,6 +2088,25 @@ func (r *Resolver) VerifyPhoneOTP(ctx context.Context, args struct {
 		return nil, fmt.Errorf("decode verifyPhoneOTP: %w", err)
 	}
 	return &AuthPayloadResolver{payload: resp.VerifyPhoneOTP, r: r}, nil
+}
+
+// StartSocialVerification forwards to the auth service to begin an OAuth 2.0 reputation flow.
+// Returns the provider's authorization URL; the client should redirect the user there.
+func (r *Resolver) StartSocialVerification(ctx context.Context, args struct{ Provider string }) (string, error) {
+	data, err := r.authGQL(ctx,
+		`mutation($provider: String!) { startSocialVerification(provider: $provider) }`,
+		map[string]any{"provider": args.Provider},
+	)
+	if err != nil {
+		return "", err
+	}
+	var resp struct {
+		StartSocialVerification string `json:"startSocialVerification"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return "", fmt.Errorf("decode startSocialVerification: %w", err)
+	}
+	return resp.StartSocialVerification, nil
 }
 
 // SetActivityPubEnabled forwards the AP toggle mutation to the auth service.

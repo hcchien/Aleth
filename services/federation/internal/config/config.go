@@ -27,6 +27,11 @@ type Config struct {
 	// PlatformKeySecret is a 32-byte key (decoded from hex) used to
 	// AES-256-GCM encrypt actor private keys at rest.
 	PlatformKeySecret []byte
+
+	// SkipSigVerify disables HTTP Signature verification on incoming inbox
+	// requests. Set FEDERATION_SKIP_SIG_VERIFY=true for local development
+	// where remote servers cannot reach your instance to verify keys.
+	SkipSigVerify bool
 }
 
 // Load reads configuration from environment variables prefixed with FEDERATION_.
@@ -62,5 +67,6 @@ func Load() Config {
 		AuthServiceURL:    viper.GetString("AUTH_URL"),
 		ContentServiceURL: viper.GetString("CONTENT_URL"),
 		PlatformKeySecret: keyBytes,
+		SkipSigVerify:     viper.GetBool("SKIP_SIG_VERIFY"),
 	}
 }

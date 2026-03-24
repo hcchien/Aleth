@@ -1,3 +1,4 @@
+-- +goose Up
 -- Verifiable Credentials (VCs) attached to user accounts.
 --
 -- Phase 1 (custodial): Platform admins or OAuth-verified flows write rows

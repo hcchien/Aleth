@@ -70,7 +70,7 @@ export default async function NotesPage() {
       <div className="mb-8 flex items-center justify-between">
         <h1
           className="font-serif text-3xl font-bold text-[var(--app-text-heading)]"
-          style={{ fontFamily: "var(--font-playfair), 'Playfair Display', Georgia, serif" }}
+          style={{ fontFamily: "var(--font-playfair), 'Playfair Display', Georgia, serif", letterSpacing: "-0.02em" }}
         >
           Notes
         </h1>

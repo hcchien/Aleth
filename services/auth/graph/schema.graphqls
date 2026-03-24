@@ -143,6 +143,12 @@ type Mutation {
   # verifyPhoneOTP checks the code and, on success, records the phone stamp
   # and re-issues tokens with an updated trust level.
   verifyPhoneOTP(phone: String!, code: String!): AuthPayload!
+  # startSocialVerification initiates an OAuth 2.0 flow for the given social provider
+  # ("twitter" | "facebook" | "instagram" | "linkedin").
+  # Returns the provider's authorization URL; the client should redirect there.
+  # On completion the provider redirects back to the auth service callback, which
+  # then redirects to /settings/reputation?verified={provider} (or ?error=...).
+  startSocialVerification(provider: String!): String!
   # setActivityPubEnabled opts the authenticated user in/out of AP federation.
   setActivityPubEnabled(enabled: Boolean!): Boolean!
 }

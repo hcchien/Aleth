@@ -69,6 +69,7 @@ type Post {
   noteTitle: String
   noteCover: String
   noteSummary: String
+  imageUrls: [String!]!
   resharedFromId: ID
   resharedFrom: Post
   replyCount: Int!
@@ -193,6 +194,7 @@ type ArticleConnection {
 
 input CreatePostInput {
   content: String!
+  imageUrls: [String!]
 }
 
 input CreateNoteInput {
@@ -442,6 +444,9 @@ type Mutation {
   # Phone-based L2 reputation
   requestPhoneOTP(phone: String!): Boolean!
   verifyPhoneOTP(phone: String!, code: String!): AuthPayload!
+  # Social OAuth reputation stamps (Twitter/X, Facebook, Instagram, LinkedIn)
+  # Returns the provider's authorization URL; client should redirect the user there.
+  startSocialVerification(provider: String!): String!
   # ActivityPub federation opt-in/out
   setActivityPubEnabled(enabled: Boolean!): Boolean!
   # Fediverse — follow / unfollow a remote AP actor (e.g. @user@threads.net)

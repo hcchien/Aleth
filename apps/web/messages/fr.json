@@ -14,7 +14,8 @@
     "signIn": "Connexion",
     "signUp": "S'inscrire",
     "connected": "Connecté",
-    "settings": "Paramètres"
+    "settings": "Paramètres",
+    "archive": "Archives"
   },
   "sidebar": {
     "heading": "Abonnements",
@@ -26,7 +27,7 @@
   },
   "profile": {
     "subscribers": "abonnés",
-    "followers": "followers",
+    "followers": "abonnés",
     "joinedDate": "Inscrit le {date}",
     "articles": "Articles",
     "noArticles": "Aucun article publié pour l'instant.",

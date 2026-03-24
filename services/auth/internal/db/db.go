@@ -697,3 +697,63 @@ func (p *Pool) VerifyPhoneOTP(ctx context.Context, userID uuid.UUID, phone, code
 	_, _ = p.pool.Exec(ctx, `DELETE FROM phone_otps WHERE user_id = $1 AND phone = $2`, userID, phone)
 	return true, nil
 }
+
+// ─── OAuth States ─────────────────────────────────────────────────────────────
+
+// OAuthState is a short-lived PKCE/CSRF record for social OAuth reputation flows.
+type OAuthState struct {
+	ID           uuid.UUID
+	UserID       uuid.UUID
+	Provider     string
+	Nonce        string
+	CodeVerifier *string // non-nil for Twitter (PKCE)
+	CreatedAt    time.Time
+	ExpiresAt    time.Time
+}
+
+// UpsertOAuthStateParams holds the data needed to persist an OAuth state.
+type UpsertOAuthStateParams struct {
+	UserID       uuid.UUID
+	Provider     string
+	Nonce        string
+	CodeVerifier *string
+	ExpiresAt    time.Time
+}
+
+// UpsertOAuthState stores a new OAuth state row.  Expired rows are pruned first.
+func (p *Pool) UpsertOAuthState(ctx context.Context, params UpsertOAuthStateParams) error {
+	// Best-effort cleanup of expired states.
+	_, _ = p.pool.Exec(ctx, `DELETE FROM oauth_states WHERE expires_at < now()`)
+	_, err := p.pool.Exec(ctx, `
+		INSERT INTO oauth_states (user_id, provider, nonce, code_verifier, expires_at)
+		VALUES ($1, $2, $3, $4, $5)
+	`, params.UserID, params.Provider, params.Nonce, params.CodeVerifier, params.ExpiresAt)
+	if err != nil {
+		return fmt.Errorf("insert oauth state: %w", err)
+	}
+	return nil
+}
+
+// GetOAuthState fetches a non-expired OAuth state by nonce.
+// Returns pgx.ErrNoRows if not found or expired.
+func (p *Pool) GetOAuthState(ctx context.Context, nonce string) (OAuthState, error) {
+	var s OAuthState
+	err := p.pool.QueryRow(ctx, `
+		SELECT id, user_id, provider, nonce, code_verifier, created_at, expires_at
+		FROM oauth_states
+		WHERE nonce = $1 AND expires_at > now()
+	`, nonce).Scan(
+		&s.ID, &s.UserID, &s.Provider, &s.Nonce,
+		&s.CodeVerifier, &s.CreatedAt, &s.ExpiresAt,
+	)
+	if err != nil {
+		return OAuthState{}, fmt.Errorf("get oauth state: %w", err)
+	}
+	return s, nil
+}
+
+// DeleteOAuthState removes a state row by nonce (consumed on callback).
+func (p *Pool) DeleteOAuthState(ctx context.Context, nonce string) error {
+	_, err := p.pool.Exec(ctx, `DELETE FROM oauth_states WHERE nonce = $1`, nonce)
+	return err
+}

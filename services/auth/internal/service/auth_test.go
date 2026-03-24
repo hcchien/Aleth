@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -152,6 +153,15 @@ func (f *fakeAuthStore) UpsertPhoneOTP(ctx context.Context, userID uuid.UUID, ph
 }
 func (f *fakeAuthStore) VerifyPhoneOTP(ctx context.Context, userID uuid.UUID, phone, code string) (bool, error) {
 	return f.verifyPhoneOTPFn(ctx, userID, phone, code)
+}
+func (f *fakeAuthStore) UpsertOAuthState(_ context.Context, _ db.UpsertOAuthStateParams) error {
+	return nil
+}
+func (f *fakeAuthStore) GetOAuthState(_ context.Context, _ string) (db.OAuthState, error) {
+	return db.OAuthState{}, fmt.Errorf("not found")
+}
+func (f *fakeAuthStore) DeleteOAuthState(_ context.Context, _ string) error {
+	return nil
 }
 
 func newHappyStore() *fakeAuthStore {

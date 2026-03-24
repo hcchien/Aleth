@@ -14,7 +14,8 @@
     "signIn": "Sign in",
     "signUp": "Sign up",
     "connected": "Connected",
-    "settings": "Settings"
+    "settings": "Settings",
+    "archive": "Archive"
   },
   "sidebar": {
     "heading": "Following",

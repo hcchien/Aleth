@@ -14,7 +14,8 @@
     "signIn": "로그인",
     "signUp": "회원가입",
     "connected": "연결됨",
-    "settings": "설정"
+    "settings": "설정",
+    "archive": "아카이브"
   },
   "sidebar": {
     "heading": "팔로잉",

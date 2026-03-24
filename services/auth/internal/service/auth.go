@@ -20,6 +20,20 @@ import (
 	"github.com/aleth/auth/internal/db"
 )
 
+// OAuthConfig holds credentials for social OAuth reputation providers.
+type OAuthConfig struct {
+	TwitterClientID      string
+	TwitterClientSecret  string
+	FacebookClientID     string // App ID (same as FacebookApp for server-side flow)
+	FacebookClientSecret string
+	InstagramClientID    string
+	InstagramClientSecret string
+	LinkedInClientID     string
+	LinkedInClientSecret string
+	CallbackBase         string // Base URL of this auth service (e.g. "http://localhost:8081")
+	FrontendURL          string // Next.js app URL (e.g. "http://localhost:3000")
+}
+
 // AuthService provides authentication business logic.
 type AuthService struct {
 	db           authStore
@@ -28,6 +42,17 @@ type AuthService struct {
 	facebookApp  string
 	passkeyRPID  string
 	httpClient   *http.Client
+	oauthCfg     OAuthConfig
+}
+
+// SetOAuthConfig wires in the social OAuth credentials.
+func (s *AuthService) SetOAuthConfig(cfg OAuthConfig) {
+	s.oauthCfg = cfg
+}
+
+// FrontendURL returns the configured frontend base URL (used by callback handlers).
+func (s *AuthService) FrontendURL() string {
+	return s.oauthCfg.FrontendURL
 }
 
 type authStore interface {
@@ -69,6 +94,10 @@ type authStore interface {
 	VerifyPhoneOTP(ctx context.Context, userID uuid.UUID, phone, code string) (bool, error)
 	// ActivityPub toggle
 	SetAPEnabled(ctx context.Context, userID uuid.UUID, enabled bool) (db.User, error)
+	// OAuth states (social reputation flows)
+	UpsertOAuthState(ctx context.Context, params db.UpsertOAuthStateParams) error
+	GetOAuthState(ctx context.Context, nonce string) (db.OAuthState, error)
+	DeleteOAuthState(ctx context.Context, nonce string) error
 }
 
 func (s *AuthService) SetFacebookAppID(appID string) {
@@ -547,7 +576,8 @@ func (s *AuthService) FinishPasskeyLogin(ctx context.Context, assertion PasskeyA
 		return nil, fmt.Errorf("invalid challenge token: %w", err)
 	}
 
-	clientDataBytes, err := base64.RawURLEncoding.DecodeString(assertion.ClientDataJSON)
+	// Strip any accidental padding before decoding (some browsers add trailing '=').
+	clientDataBytes, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(strings.TrimSpace(assertion.ClientDataJSON), "="))
 	if err != nil {
 		return nil, fmt.Errorf("invalid clientDataJSON encoding")
 	}
@@ -561,7 +591,12 @@ func (s *AuthService) FinishPasskeyLogin(ctx context.Context, assertion PasskeyA
 	if clientData.Type != "webauthn.get" {
 		return nil, fmt.Errorf("invalid assertion type")
 	}
-	if clientData.Challenge != challengeClaims.Challenge {
+	// Normalise both challenges by decoding to raw bytes before comparing.
+	// This tolerates minor base64url variations across browsers (e.g. trailing '=' padding).
+	// Any decode failure is treated as a mismatch rather than a hard error.
+	browserChallengeBytes, decErr1 := base64.RawURLEncoding.DecodeString(strings.TrimRight(clientData.Challenge, "="))
+	expectedChallengeBytes, decErr2 := base64.RawURLEncoding.DecodeString(strings.TrimRight(challengeClaims.Challenge, "="))
+	if decErr1 != nil || decErr2 != nil || string(browserChallengeBytes) != string(expectedChallengeBytes) {
 		return nil, fmt.Errorf("challenge mismatch")
 	}
 
@@ -928,6 +963,12 @@ func ComputeTwitterScore(accountAgeDays int, followerCount int, tweetCount int) 
 		s = ProviderMaxScore["twitter"]
 	}
 	return s
+}
+
+// ComputeLinkedInScore scores a LinkedIn account.
+// LinkedIn professional identity is inherently valuable; verification earns max score.
+func ComputeLinkedInScore() int16 {
+	return ProviderMaxScore["linkedin"]
 }
 
 // SetAPEnabled updates whether the user's profile is discoverable via ActivityPub.

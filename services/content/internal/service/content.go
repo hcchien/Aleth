@@ -247,7 +247,7 @@ func (s *ContentService) CountBoardSubscribers(ctx context.Context, boardID uuid
 // ─── Posts ────────────────────────────────────────────────────────────────────
 
 // CreatePost creates a new root-level post.
-func (s *ContentService) CreatePost(ctx context.Context, authorID uuid.UUID, content string, authorTrustLevel int, pageID *uuid.UUID) (db.Post, error) {
+func (s *ContentService) CreatePost(ctx context.Context, authorID uuid.UUID, content string, imageURLs []string, authorTrustLevel int, pageID *uuid.UUID) (db.Post, error) {
 	content = strings.TrimSpace(content)
 	if content == "" {
 		return db.Post{}, fmt.Errorf("content cannot be empty")
@@ -259,6 +259,7 @@ func (s *ContentService) CreatePost(ctx context.Context, authorID uuid.UUID, con
 	post, err := s.db.CreatePost(ctx, db.CreatePostParams{
 		AuthorID:         authorID,
 		Content:          content,
+		ImageURLs:        imageURLs,
 		AuthorTrustLevel: authorTrustLevel,
 		PageID:           pageID,
 	})
@@ -954,7 +955,7 @@ func (s *ContentService) CreatePagePost(ctx context.Context, authorID, pageID uu
 	if m == nil {
 		return db.Post{}, fmt.Errorf("not a page member")
 	}
-	return s.CreatePost(ctx, authorID, content, authorTrustLevel, &pageID)
+	return s.CreatePost(ctx, authorID, content, nil, authorTrustLevel, &pageID)
 }
 
 func (s *ContentService) ReplyPagePost(ctx context.Context, authorID, pageID, parentID uuid.UUID, content string, authorTrustLevel int) (db.Post, error) {

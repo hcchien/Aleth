@@ -468,6 +468,20 @@ func (r *Resolver) VerifyPhoneOTP(ctx context.Context, args struct {
 	return &AuthPayloadResolver{result: result}, nil
 }
 
+// StartSocialVerification builds an OAuth authorization URL for the given provider
+// and returns it so the frontend can redirect the user there.
+func (r *Resolver) StartSocialVerification(ctx context.Context, args struct{ Provider string }) (string, error) {
+	claims, ok := ClaimsFromContext(ctx)
+	if !ok {
+		return "", fmt.Errorf("not authenticated")
+	}
+	userID, err := uuid.Parse(claims.Subject)
+	if err != nil {
+		return "", fmt.Errorf("invalid subject claim")
+	}
+	return r.auth.StartSocialOAuth(ctx, userID, args.Provider)
+}
+
 // SetActivityPubEnabled opts the current user in or out of ActivityPub federation.
 func (r *Resolver) SetActivityPubEnabled(ctx context.Context, args struct{ Enabled bool }) (bool, error) {
 	claims, ok := ClaimsFromContext(ctx)

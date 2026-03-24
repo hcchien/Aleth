@@ -3,8 +3,9 @@ import { getTranslations } from "next-intl/server";
 import Link from "next/link";
 import { gql } from "@/lib/gql";
 import { ForumShell } from "../../components/forum-shell";
-import { ArticleCard } from "../../components/article-card";
 import { PageFollowButton } from "../../components/page-follow-button";
+import { PageFeedClient } from "../../components/page-feed-client";
+import { PageArticlesClient } from "../../components/page-articles-client";
 
 const PAGE_QUERY = `
   query GetFanPage($slug: String!) {
@@ -93,18 +94,6 @@ interface PageProps {
   searchParams: Promise<{ tab?: string }>;
 }
 
-function timeAgo(isoString: string): string {
-  const diff = Date.now() - new Date(isoString).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h`;
-  const days = Math.floor(hours / 24);
-  if (days < 30) return `${days}d`;
-  return new Date(isoString).toLocaleDateString();
-}
-
 export default async function FanPageView({ params, searchParams }: PageProps) {
   const { slug } = await params;
   const { tab = "posts" } = await searchParams;
@@ -143,12 +132,6 @@ export default async function FanPageView({ params, searchParams }: PageProps) {
   ]);
   if (articlesResult.status === "fulfilled") articles = articlesResult.value.pageArticles;
   if (postsResult.status === "fulfilled") posts = postsResult.value.pageFeed;
-
-  // Enrich articles with page info for ArticleCard
-  const enrichedArticles = articles.items.map((a) => ({
-    ...a,
-    board: { name: page!.name, owner: { username: `p/${page!.slug}` } },
-  }));
 
   const avatarChar = (page.name[0] || "P").toUpperCase();
 
@@ -244,56 +227,31 @@ export default async function FanPageView({ params, searchParams }: PageProps) {
         >
           {t("articles")}
           <span className="ml-1.5 font-mono text-xs text-[var(--app-text-muted)]">
-            ({enrichedArticles.length}{articles.hasMore ? "+" : ""})
+            ({articles.items.length}{articles.hasMore ? "+" : ""})
           </span>
         </Link>
       </div>
 
       {/* Tab content */}
       {tab === "posts" && (
-        <div>
-          {posts.items.length === 0 ? (
-            <div className="rounded-xl border border-[var(--app-border-2)] bg-[var(--app-surface)] px-6 py-10 text-center text-sm text-[var(--app-text-muted)]">
-              No posts yet.
-            </div>
-          ) : (
-            <div className="divide-y divide-[var(--app-border)] rounded-xl border border-[var(--app-border-2)] bg-[var(--app-surface)]">
-              {posts.items.map((post) => (
-                <article key={post.id} className="px-5 py-4">
-                  <div className="mb-2 flex items-center gap-2 text-xs text-[var(--app-text-muted)]">
-                    <Link
-                      href={`/@${post.author.username}`}
-                      className="font-medium text-[var(--app-text-secondary)] hover:text-[var(--app-text)]"
-                    >
-                      {post.author.displayName ?? post.author.username}
-                    </Link>
-                    <span>·</span>
-                    <span>{timeAgo(post.createdAt)}</span>
-                  </div>
-                  <p className="text-sm text-[var(--app-text-bright)] whitespace-pre-wrap break-words">
-                    {post.content}
-                  </p>
-                </article>
-              ))}
-            </div>
-          )}
-        </div>
+        <PageFeedClient
+          pageId={page.id}
+          pageSlug={page.slug}
+          initialPosts={posts.items}
+          initialNextCursor={posts.nextCursor}
+          initialHasMore={posts.hasMore}
+        />
       )}
 
       {tab === "articles" && (
-        <div>
-          {enrichedArticles.length === 0 ? (
-            <div className="rounded-xl border border-[var(--app-border-2)] bg-[var(--app-surface)] px-6 py-10 text-center text-sm text-[var(--app-text-muted)]">
-              No published articles yet.
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {enrichedArticles.map((article) => (
-                <ArticleCard key={article.id} article={article} />
-              ))}
-            </div>
-          )}
-        </div>
+        <PageArticlesClient
+          pageId={page.id}
+          pageSlug={page.slug}
+          pageName={page.name}
+          initialArticles={articles.items}
+          initialNextCursor={articles.nextCursor}
+          initialHasMore={articles.hasMore}
+        />
       )}
     </ForumShell>
   );

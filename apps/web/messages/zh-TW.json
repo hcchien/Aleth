@@ -8,13 +8,14 @@
   },
   "nav": {
     "feed": "動態",
-    "notes": "Notes",
+    "notes": "筆記",
     "compose": "發文",
     "signOut": "登出",
     "signIn": "登入",
     "signUp": "註冊",
     "connected": "已連線",
-    "settings": "設定"
+    "settings": "設定",
+    "archive": "封存"
   },
   "sidebar": {
     "heading": "追蹤",

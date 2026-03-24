@@ -37,6 +37,7 @@ type Post {
   noteTitle: String
   noteCover: String
   noteSummary: String
+  imageUrls: [String!]!
   resharedFromId: ID
   replyCount: Int!
   likeCount: Int!
@@ -100,6 +101,7 @@ type ArticleConnection {
 
 input CreatePostInput {
   content: String!
+  imageUrls: [String!]
 }
 
 input CreateArticleInput {

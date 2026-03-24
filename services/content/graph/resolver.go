@@ -357,7 +357,8 @@ func (r *Resolver) ArticleComments(ctx context.Context, args struct {
 // ─── Mutation resolvers ───────────────────────────────────────────────────────
 
 type CreatePostInput struct {
-	Content string
+	Content   string
+	ImageUrls *[]string
 }
 
 func (r *Resolver) CreatePost(ctx context.Context, args struct{ Input CreatePostInput }) (*PostResolver, error) {
@@ -369,7 +370,11 @@ func (r *Resolver) CreatePost(ctx context.Context, args struct{ Input CreatePost
 	if err != nil {
 		return nil, fmt.Errorf("invalid user id")
 	}
-	post, err := r.svc.CreatePost(ctx, authorID, args.Input.Content, claims.TrustLevel, nil)
+	var imageURLs []string
+	if args.Input.ImageUrls != nil {
+		imageURLs = *args.Input.ImageUrls
+	}
+	post, err := r.svc.CreatePost(ctx, authorID, args.Input.Content, imageURLs, claims.TrustLevel, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -738,6 +743,12 @@ func (r *PostResolver) Content() string      { return r.post.Content }
 func (r *PostResolver) NoteTitle() *string   { return r.post.NoteTitle }
 func (r *PostResolver) NoteCover() *string   { return r.post.NoteCover }
 func (r *PostResolver) NoteSummary() *string { return r.post.NoteSummary }
+func (r *PostResolver) ImageUrls() []string {
+	if r.post.ImageURLs == nil {
+		return []string{}
+	}
+	return r.post.ImageURLs
+}
 func (r *PostResolver) ResharedFromId() *graphql.ID {
 	if r.post.ResharedFromID == nil {
 		return nil

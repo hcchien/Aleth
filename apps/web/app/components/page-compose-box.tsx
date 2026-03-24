@@ -12,7 +12,7 @@ import { gqlClient } from "@/lib/gql-client";
 const CHECK_MEMBER_QUERY = `
   query CheckPageMember($pageId: ID!) {
     pageMembers(pageId: $pageId) {
-      edges { role user { id } }
+      items { role user { id } }
     }
   }
 `;
@@ -23,6 +23,9 @@ const CREATE_PAGE_POST_MUTATION = `
       id
       content
       createdAt
+      replyCount
+      viewerEmotion
+      reactionCounts { emotion count }
       author { id username displayName }
     }
   }
@@ -34,6 +37,9 @@ export interface PagePost {
   id: string;
   content: string;
   createdAt: string;
+  replyCount: number;
+  viewerEmotion: string | null;
+  reactionCounts: { emotion: string; count: number }[];
   author: { id: string; username: string; displayName: string | null };
 }
 
@@ -85,12 +91,12 @@ export function PageComposeBox({
   // ── Check membership ──────────────────────────────────────────────────────
   useEffect(() => {
     if (!user || authLoading) return;
-    gqlClient<{ pageMembers: { edges: { role: string; user: { id: string } }[] } }>(
+    gqlClient<{ pageMembers: { items: { role: string; user: { id: string } }[] } }>(
       CHECK_MEMBER_QUERY,
       { pageId }
     )
       .then((data) => {
-        const member = data.pageMembers.edges.find((e) => e.user.id === user.id);
+        const member = data.pageMembers.items.find((e) => e.user.id === user.id);
         setIsMember(!!member && (member.role === "admin" || member.role === "editor"));
       })
       .catch(() => {});

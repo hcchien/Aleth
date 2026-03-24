@@ -7,6 +7,7 @@ import { useState, useCallback } from "react";
 import Link from "next/link";
 import { gqlClient } from "@/lib/gql-client";
 import { PageComposeBox, type PagePost } from "./page-compose-box";
+import { ReactBar } from "./react-bar";
 
 // ─── GraphQL ──────────────────────────────────────────────────────────────────
 
@@ -15,6 +16,8 @@ const PAGE_FEED_MORE_QUERY = `
     pageFeed(slug: $slug, after: $after, limit: $limit) {
       items {
         id content createdAt
+        replyCount viewerEmotion
+        reactionCounts { emotion count }
         author { id username displayName }
       }
       nextCursor
@@ -50,9 +53,17 @@ function PostRow({ post }: { post: PagePost }) {
         <span>·</span>
         <span>{timeAgo(post.createdAt)}</span>
       </div>
-      <p className="text-sm text-[var(--app-text-bright)] whitespace-pre-wrap break-words">
+      <p className="mb-3 text-sm text-[var(--app-text-bright)] whitespace-pre-wrap break-words">
         {post.content}
       </p>
+      <ReactBar
+        postId={post.id}
+        initialViewerEmotion={post.viewerEmotion}
+        initialReactionCounts={post.reactionCounts}
+        replyCount={post.replyCount}
+        replyHref={`/posts/${post.id}`}
+        postPreview={{ content: post.content, authorName: post.author.displayName ?? post.author.username }}
+      />
     </article>
   );
 }
@@ -76,6 +87,7 @@ export function PageFeedClient({
   const [cursor, setCursor] = useState<string | null>(initialNextCursor);
   const [hasMore, setHasMore] = useState(initialHasMore);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [loadError, setLoadError] = useState(false);
 
   const handlePosted = useCallback((post: PagePost) => {
     setPosts((prev) => [post, ...prev]);
@@ -84,6 +96,7 @@ export function PageFeedClient({
   async function loadMore() {
     if (!cursor || loadingMore) return;
     setLoadingMore(true);
+    setLoadError(false);
     try {
       const data = await gqlClient<{
         pageFeed: { items: PagePost[]; nextCursor: string | null; hasMore: boolean };
@@ -92,7 +105,7 @@ export function PageFeedClient({
       setCursor(data.pageFeed.nextCursor);
       setHasMore(data.pageFeed.hasMore);
     } catch {
-      // fail silently — user can retry
+      setLoadError(true);
     } finally {
       setLoadingMore(false);
     }
@@ -114,7 +127,20 @@ export function PageFeedClient({
             ))}
           </div>
 
-          {hasMore && (
+          {loadError && (
+            <div className="mt-4 text-center">
+              <p className="mb-1.5 text-sm text-[var(--app-text-muted)]">Failed to load posts.</p>
+              <button
+                type="button"
+                onClick={() => void loadMore()}
+                className="text-sm text-[var(--app-accent)] hover:underline"
+              >
+                Retry
+              </button>
+            </div>
+          )}
+
+          {hasMore && !loadError && (
             <div className="mt-4 text-center">
               <button
                 type="button"

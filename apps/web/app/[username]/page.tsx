@@ -220,7 +220,7 @@ export default async function UserProfilePage({ params }: PageProps) {
             </div>
 
             {/* Action buttons — top-right */}
-            <div className="flex items-center gap-2 mt-10">
+            <div className="flex flex-wrap items-center gap-2 mt-10">
               <FollowButton
                 userID={board.owner.id}
                 ownerUsername={board.owner.username}
@@ -259,7 +259,7 @@ export default async function UserProfilePage({ params }: PageProps) {
           )}
 
           {/* Stats */}
-          <div className="flex items-center gap-6 border-t border-[var(--app-border-inner)] pt-4">
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-3 border-t border-[var(--app-border-inner)] pt-4">
             <StatItem value={articles.items.length} label={t("articles")} />
             <div className="w-px h-8 bg-[var(--app-border-inner)]" />
             <StatItem value={board.subscriberCount} label={t("subscribers")} />

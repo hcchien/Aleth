@@ -60,6 +60,7 @@ export function PageArticlesClient({
   const [cursor, setCursor] = useState<string | null>(initialNextCursor);
   const [hasMore, setHasMore] = useState(initialHasMore);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [loadError, setLoadError] = useState(false);
   const [isMember, setIsMember] = useState(false);
 
   useEffect(() => {
@@ -78,6 +79,7 @@ export function PageArticlesClient({
   async function loadMore() {
     if (!cursor || loadingMore) return;
     setLoadingMore(true);
+    setLoadError(false);
     try {
       const data = await gqlClient<{
         pageArticles: { items: Article[]; nextCursor: string | null; hasMore: boolean };
@@ -86,7 +88,7 @@ export function PageArticlesClient({
       setCursor(data.pageArticles.nextCursor);
       setHasMore(data.pageArticles.hasMore);
     } catch {
-      // fail silently
+      setLoadError(true);
     } finally {
       setLoadingMore(false);
     }
@@ -128,7 +130,20 @@ export function PageArticlesClient({
             ))}
           </div>
 
-          {hasMore && (
+          {loadError && (
+            <div className="mt-4 text-center">
+              <p className="mb-1.5 text-sm text-[var(--app-text-muted)]">Failed to load articles.</p>
+              <button
+                type="button"
+                onClick={() => void loadMore()}
+                className="text-sm text-[var(--app-accent)] hover:underline"
+              >
+                Retry
+              </button>
+            </div>
+          )}
+
+          {hasMore && !loadError && (
             <div className="mt-4 text-center">
               <button
                 type="button"

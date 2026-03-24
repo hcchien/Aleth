@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { useAuth } from "@/lib/auth-context";
 import { gqlClient } from "@/lib/gql-client";
+import { getAccessToken } from "@/lib/auth";
 import { PagePolicyForm, type PagePolicy } from "@/app/components/page-policy-form";
 
 const PAGE_ADMIN_QUERY = `
@@ -27,7 +28,7 @@ const PAGE_ADMIN_QUERY = `
       requireCommentVcs { vcType issuer }
     }
     pageMembers(pageId: $slug) {
-      edges {
+      items {
         role
         joinedAt
         user { id username displayName }
@@ -70,6 +71,36 @@ const DELETE_PAGE_MUTATION = `
   }
 `;
 
+const PAGE_SERIES_QUERY = `
+  query PageSeries($pageId: ID!) {
+    pageSeries(pageId: $pageId) {
+      id title description articleCount
+    }
+  }
+`;
+
+const CREATE_SERIES_MUTATION = `
+  mutation CreatePageSeries($pageId: ID!, $title: String!, $description: String) {
+    createSeries(input: { pageId: $pageId, title: $title, description: $description }) {
+      id title description articleCount
+    }
+  }
+`;
+
+const UPDATE_SERIES_MUTATION = `
+  mutation UpdateSeries($id: ID!, $title: String!, $description: String) {
+    updateSeries(id: $id, input: { title: $title, description: $description }) {
+      id title description
+    }
+  }
+`;
+
+const DELETE_SERIES_MUTATION = `
+  mutation DeleteSeries($id: ID!) {
+    deleteSeries(id: $id)
+  }
+`;
+
 const FIND_USER_QUERY = `
   query FindUser($username: String!) {
     userByUsername(username: $username) { id username displayName }
@@ -100,7 +131,7 @@ interface PageAdminData {
 }
 
 interface MemberConnection {
-  edges: PageMemberEdge[];
+  items: PageMemberEdge[];
 }
 
 const CATEGORIES = ["general", "music", "sports", "tech", "art", "gaming", "politics", "education", "other"];
@@ -123,9 +154,15 @@ export default function PageAdminPanel() {
   const [editName, setEditName] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [editCategory, setEditCategory] = useState("general");
+  const [editAvatarUrl, setEditAvatarUrl] = useState<string | null>(null);
+  const [editCoverUrl, setEditCoverUrl] = useState<string | null>(null);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [uploadingCover, setUploadingCover] = useState(false);
   const [savingInfo, setSavingInfo] = useState(false);
   const [infoSaved, setInfoSaved] = useState(false);
   const [infoError, setInfoError] = useState<string | null>(null);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+  const coverInputRef = useRef<HTMLInputElement>(null);
 
   // AP toggle
   const [apEnabled, setApEnabled] = useState(false);
@@ -141,8 +178,18 @@ export default function PageAdminPanel() {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
+  // Series
+  const [seriesList, setSeriesList] = useState<{ id: string; title: string; description: string | null; articleCount: number }[]>([]);
+  const [showCreateSeries, setShowCreateSeries] = useState(false);
+  const [newSeriesTitle, setNewSeriesTitle] = useState("");
+  const [newSeriesDesc, setNewSeriesDesc] = useState("");
+  const [creatingSeries, setCreatingSeries] = useState(false);
+  const [seriesError, setSeriesError] = useState<string | null>(null);
+  const [editSeries, setEditSeries] = useState<{ id: string; title: string; description: string } | null>(null);
+  const [savingSeries, setSavingSeries] = useState(false);
+
   // Active section
-  const [activeSection, setActiveSection] = useState<"info" | "policy" | "members" | "danger">("info");
+  const [activeSection, setActiveSection] = useState<"info" | "policy" | "members" | "series" | "danger">("info");
 
   useEffect(() => {
     if (authLoading) return;
@@ -161,17 +208,45 @@ export default function PageAdminPanel() {
           return;
         }
         setPage(data.page);
-        setMembers(data.pageMembers?.edges ?? []);
+        setMembers(data.pageMembers?.items ?? []);
         setEditName(data.page.name);
         setEditDescription(data.page.description ?? "");
         setEditCategory(data.page.category);
+        setEditAvatarUrl(data.page.avatarUrl);
+        setEditCoverUrl(data.page.coverUrl);
         setApEnabled(data.page.apEnabled);
+        // Load series for this page
+        gqlClient<{ pageSeries: { id: string; title: string; description: string | null; articleCount: number }[] }>(
+          PAGE_SERIES_QUERY,
+          { pageId: data.page.id }
+        ).then((s) => setSeriesList(s.pageSeries)).catch(() => {});
       })
       .catch((err) => {
         setFetchError(err instanceof Error ? err.message : "Failed to load page");
       })
       .finally(() => setFetching(false));
   }, [user, authLoading, slug]);
+
+  async function uploadImage(file: File, setUploading: (v: boolean) => void, setUrl: (url: string) => void) {
+    setUploading(true);
+    const token = getAccessToken();
+    const formData = new FormData();
+    formData.append("file", file);
+    try {
+      const res = await fetch("/api/upload", {
+        method: "POST",
+        headers: token ? { authorization: `Bearer ${token}` } : {},
+        body: formData,
+      });
+      const json = await res.json() as { url?: string; error?: string };
+      if (!res.ok || !json.url) throw new Error(json.error ?? "Upload failed");
+      setUrl(json.url);
+    } catch (err) {
+      setInfoError(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }
 
   async function handleSaveInfo(e: React.FormEvent) {
     e.preventDefault();
@@ -186,6 +261,8 @@ export default function PageAdminPanel() {
           name: editName.trim() || null,
           description: editDescription.trim() || null,
           category: editCategory,
+          avatarUrl: editAvatarUrl,
+          coverUrl: editCoverUrl,
         },
       });
       setPage((prev) => prev ? { ...prev, ...data.updatePage } : prev);
@@ -282,6 +359,57 @@ export default function PageAdminPanel() {
     }
   }
 
+  async function handleCreateSeries(e: React.FormEvent) {
+    e.preventDefault();
+    if (!page || !newSeriesTitle.trim()) return;
+    setCreatingSeries(true);
+    setSeriesError(null);
+    try {
+      const data = await gqlClient<{ createSeries: { id: string; title: string; description: string | null; articleCount: number } }>(
+        CREATE_SERIES_MUTATION,
+        { pageId: page.id, title: newSeriesTitle.trim(), description: newSeriesDesc.trim() || undefined }
+      );
+      setSeriesList((prev) => [...prev, data.createSeries]);
+      setNewSeriesTitle("");
+      setNewSeriesDesc("");
+      setShowCreateSeries(false);
+    } catch (err) {
+      setSeriesError(err instanceof Error ? err.message : "Failed to create series");
+    } finally {
+      setCreatingSeries(false);
+    }
+  }
+
+  async function handleSaveSeries() {
+    if (!editSeries) return;
+    setSavingSeries(true);
+    try {
+      await gqlClient(UPDATE_SERIES_MUTATION, {
+        id: editSeries.id,
+        title: editSeries.title,
+        description: editSeries.description || undefined,
+      });
+      setSeriesList((prev) =>
+        prev.map((s) => s.id === editSeries.id ? { ...s, title: editSeries.title, description: editSeries.description || null } : s)
+      );
+      setEditSeries(null);
+    } catch (err) {
+      setSeriesError(err instanceof Error ? err.message : "Failed to save");
+    } finally {
+      setSavingSeries(false);
+    }
+  }
+
+  async function handleDeleteSeries(id: string) {
+    if (!confirm("Delete this series? Articles will be unlinked.")) return;
+    try {
+      await gqlClient(DELETE_SERIES_MUTATION, { id });
+      setSeriesList((prev) => prev.filter((s) => s.id !== id));
+    } catch (err) {
+      setSeriesError(err instanceof Error ? err.message : "Failed to delete");
+    }
+  }
+
   if (authLoading || fetching) {
     return (
       <div className="mx-auto mt-10 max-w-3xl px-4 text-sm text-[#7a8090]">
@@ -313,6 +441,7 @@ export default function PageAdminPanel() {
     { id: "info", label: t("adminPanelInfo") },
     { id: "policy", label: t("policySection") },
     { id: "members", label: t("members") },
+    { id: "series", label: "Series" },
     { id: "danger", label: t("dangerZone") },
   ];
 
@@ -355,6 +484,101 @@ export default function PageAdminPanel() {
         <div className="space-y-6">
           <form onSubmit={handleSaveInfo} className="space-y-5 rounded-2xl border border-[#2a2e38] bg-[#0f1117] p-6">
             <h2 className="font-semibold text-[#f3f5f9]">{t("adminPanelInfo")}</h2>
+
+            {/* Cover image */}
+            <div>
+              <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-[#7a8090]">
+                Cover image
+              </label>
+              <div
+                className="relative h-28 w-full cursor-pointer overflow-hidden rounded-lg border border-dashed border-[#2a2e38] bg-[#171b24] hover:border-[#f09a45] transition-colors"
+                onClick={() => coverInputRef.current?.click()}
+              >
+                {editCoverUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={editCoverUrl} alt="" className="h-full w-full object-cover" />
+                ) : (
+                  <div className="flex h-full items-center justify-center text-xs text-[#555c6e]">
+                    Click to upload cover (recommended 1200×400)
+                  </div>
+                )}
+                {uploadingCover && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/60 text-xs text-white">
+                    Uploading…
+                  </div>
+                )}
+              </div>
+              <input
+                ref={coverInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) void uploadImage(file, setUploadingCover, setEditCoverUrl);
+                  e.target.value = "";
+                }}
+              />
+              {editCoverUrl && (
+                <button
+                  type="button"
+                  onClick={() => setEditCoverUrl(null)}
+                  className="mt-1 text-xs text-[#7a8090] hover:text-red-400 transition-colors"
+                >
+                  Remove cover
+                </button>
+              )}
+            </div>
+
+            {/* Avatar */}
+            <div>
+              <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-[#7a8090]">
+                Avatar
+              </label>
+              <div className="flex items-center gap-4">
+                <div
+                  className="relative flex h-16 w-16 cursor-pointer items-center justify-center overflow-hidden rounded-full border border-dashed border-[#2a2e38] bg-[#171b24] hover:border-[#f09a45] transition-colors shrink-0"
+                  onClick={() => avatarInputRef.current?.click()}
+                >
+                  {editAvatarUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={editAvatarUrl} alt="" className="h-full w-full object-cover" />
+                  ) : (
+                    <span className="text-lg text-[#555c6e]">
+                      {(editName[0] || "P").toUpperCase()}
+                    </span>
+                  )}
+                  {uploadingAvatar && (
+                    <div className="absolute inset-0 flex items-center justify-center rounded-full bg-black/60 text-[10px] text-white">
+                      …
+                    </div>
+                  )}
+                </div>
+                <div className="text-xs text-[#7a8090]">
+                  <p>Click the circle to upload an avatar.</p>
+                  {editAvatarUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setEditAvatarUrl(null)}
+                      className="mt-1 text-red-400 hover:text-red-300 transition-colors"
+                    >
+                      Remove avatar
+                    </button>
+                  )}
+                </div>
+              </div>
+              <input
+                ref={avatarInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) void uploadImage(file, setUploadingAvatar, setEditAvatarUrl);
+                  e.target.value = "";
+                }}
+              />
+            </div>
 
             <div>
               <label className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-[#7a8090]">
@@ -520,6 +744,113 @@ export default function PageAdminPanel() {
             </div>
             {addMemberError && <p className="text-xs text-red-400">{addMemberError}</p>}
           </form>
+        </div>
+      )}
+
+      {/* ── Series section ── */}
+      {activeSection === "series" && (
+        <div className="space-y-6">
+          <div className="flex items-center justify-between">
+            <h2 className="font-serif text-xl text-[#f3f5f9]">Article Series</h2>
+            <button
+              onClick={() => setShowCreateSeries(true)}
+              className="rounded-md bg-[#f09a45] px-4 py-1.5 text-sm font-medium text-[#0b0d12] hover:bg-[#fbb468] transition-colors"
+            >
+              + New series
+            </button>
+          </div>
+
+          {seriesError && <p className="text-xs text-red-400">{seriesError}</p>}
+
+          {showCreateSeries && (
+            <form onSubmit={handleCreateSeries} className="rounded-2xl border border-[#2a2e38] bg-[#0f1117] p-5 space-y-4">
+              <h3 className="font-medium text-[#f3f5f9]">New series</h3>
+              <input
+                value={newSeriesTitle}
+                onChange={(e) => setNewSeriesTitle(e.target.value)}
+                placeholder="Series title"
+                required
+                className="w-full rounded-md border border-[#2a2e38] bg-[#171b24] px-3 py-2 text-sm text-[#e6e7ea] focus:border-[#f09a45] focus:outline-none"
+              />
+              <textarea
+                value={newSeriesDesc}
+                onChange={(e) => setNewSeriesDesc(e.target.value)}
+                placeholder="Description (optional)"
+                rows={2}
+                className="w-full rounded-md border border-[#2a2e38] bg-[#171b24] px-3 py-2 text-sm text-[#e6e7ea] focus:border-[#f09a45] focus:outline-none resize-none"
+              />
+              <div className="flex gap-2">
+                <button type="submit" disabled={creatingSeries || !newSeriesTitle.trim()}
+                  className="rounded-md bg-[#f09a45] px-4 py-1.5 text-sm font-medium text-[#0b0d12] hover:bg-[#fbb468] disabled:opacity-50 transition-colors">
+                  {creatingSeries ? "Creating…" : "Create"}
+                </button>
+                <button type="button" onClick={() => setShowCreateSeries(false)}
+                  className="text-sm text-[#7a8090] hover:text-[#c8cdd8] transition-colors">
+                  Cancel
+                </button>
+              </div>
+            </form>
+          )}
+
+          {seriesList.length === 0 ? (
+            <div className="rounded-xl border border-[#2a2e38] bg-[#0f1117] px-6 py-10 text-center text-sm text-[#7a8090]">
+              No series yet. Create one to group your articles.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {seriesList.map((s) => (
+                <div key={s.id} className="rounded-xl border border-[#2a2e38] bg-[#0f1117] p-4">
+                  {editSeries?.id === s.id ? (
+                    <div className="space-y-3">
+                      <input
+                        value={editSeries.title}
+                        onChange={(e) => setEditSeries({ ...editSeries, title: e.target.value })}
+                        className="w-full rounded-md border border-[#2a2e38] bg-[#171b24] px-3 py-2 text-sm text-[#e6e7ea] focus:border-[#f09a45] focus:outline-none"
+                      />
+                      <textarea
+                        value={editSeries.description}
+                        onChange={(e) => setEditSeries({ ...editSeries, description: e.target.value })}
+                        rows={2}
+                        className="w-full rounded-md border border-[#2a2e38] bg-[#171b24] px-3 py-2 text-sm text-[#e6e7ea] focus:border-[#f09a45] focus:outline-none resize-none"
+                      />
+                      <div className="flex gap-2">
+                        <button onClick={handleSaveSeries} disabled={savingSeries}
+                          className="rounded-md bg-[#f09a45] px-3 py-1 text-xs font-medium text-[#0b0d12] hover:bg-[#fbb468] disabled:opacity-50">
+                          Save
+                        </button>
+                        <button onClick={() => setEditSeries(null)}
+                          className="text-xs text-[#7a8090] hover:text-[#c8cdd8]">
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <p className="font-medium text-[#e6e7ea]">{s.title}</p>
+                        {s.description && <p className="mt-0.5 text-xs text-[#7a8090]">{s.description}</p>}
+                        <p className="mt-1 text-xs text-[#555c6e]">{s.articleCount} article(s)</p>
+                      </div>
+                      <div className="flex shrink-0 gap-3">
+                        <button
+                          onClick={() => setEditSeries({ id: s.id, title: s.title, description: s.description ?? "" })}
+                          className="text-xs text-[#7a8090] hover:text-[#c8cdd8] transition-colors"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => void handleDeleteSeries(s.id)}
+                          className="text-xs text-red-400/70 hover:text-red-400 transition-colors"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

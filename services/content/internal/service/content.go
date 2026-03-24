@@ -85,8 +85,10 @@ type contentStore interface {
 
 	// Series
 	CreateSeries(ctx context.Context, boardID uuid.UUID, title string, description *string) (db.Series, error)
+	CreatePageSeries(ctx context.Context, pageID uuid.UUID, title string, description *string) (db.Series, error)
 	GetSeriesByID(ctx context.Context, id uuid.UUID) (db.Series, error)
 	ListSeriesByBoard(ctx context.Context, boardID uuid.UUID) ([]db.Series, error)
+	ListSeriesByPage(ctx context.Context, pageID uuid.UUID) ([]db.Series, error)
 	UpdateSeries(ctx context.Context, id uuid.UUID, title string, description *string) (db.Series, error)
 	DeleteSeries(ctx context.Context, id uuid.UUID) error
 	SetArticleSeries(ctx context.Context, articleID uuid.UUID, seriesID *uuid.UUID) (db.Article, error)
@@ -1038,7 +1040,10 @@ func (s *ContentService) requireBoardOwnerBySeries(ctx context.Context, seriesID
 		}
 		return db.Series{}, fmt.Errorf("get series: %w", err)
 	}
-	board, err := s.db.GetBoardByID(ctx, series.BoardID)
+	if series.BoardID == nil {
+		return db.Series{}, fmt.Errorf("not authorized: series belongs to a page")
+	}
+	board, err := s.db.GetBoardByID(ctx, *series.BoardID)
 	if err != nil {
 		return db.Series{}, fmt.Errorf("get board: %w", err)
 	}
@@ -1084,6 +1089,28 @@ func (s *ContentService) ListSeriesByBoard(ctx context.Context, boardID uuid.UUI
 	return s.db.ListSeriesByBoard(ctx, boardID)
 }
 
+// CreatePageSeries creates a new article series for a fan page.
+// callerID must be an admin or editor member of the page.
+func (s *ContentService) CreatePageSeries(ctx context.Context, callerID, pageID uuid.UUID, title string, description *string) (db.Series, error) {
+	m, err := s.db.GetPageMember(ctx, pageID, callerID)
+	if err != nil {
+		return db.Series{}, fmt.Errorf("get page member: %w", err)
+	}
+	if m == nil || (m.Role != "admin" && m.Role != "editor") {
+		return db.Series{}, fmt.Errorf("not authorized: must be page admin or editor")
+	}
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return db.Series{}, fmt.Errorf("series title cannot be empty")
+	}
+	return s.db.CreatePageSeries(ctx, pageID, title, description)
+}
+
+// ListSeriesByPage returns all series for a fan page.
+func (s *ContentService) ListSeriesByPage(ctx context.Context, pageID uuid.UUID) ([]db.Series, error) {
+	return s.db.ListSeriesByPage(ctx, pageID)
+}
+
 // UpdateSeries updates the title and/or description of a series. callerID must own the board.
 func (s *ContentService) UpdateSeries(ctx context.Context, callerID, seriesID uuid.UUID, title string, description *string) (db.Series, error) {
 	if _, err := s.requireBoardOwnerBySeries(ctx, seriesID, callerID); err != nil {
@@ -1119,7 +1146,8 @@ func (s *ContentService) AddArticleToSeries(ctx context.Context, callerID, artic
 		}
 		return db.Article{}, fmt.Errorf("get article: %w", err)
 	}
-	if article.BoardID != series.BoardID {
+	// Allow cross-owner assignment only if both have matching board or page context
+	if series.BoardID != nil && article.BoardID != *series.BoardID {
 		return db.Article{}, fmt.Errorf("article and series must belong to the same board")
 	}
 	return s.db.SetArticleSeries(ctx, articleID, &seriesID)

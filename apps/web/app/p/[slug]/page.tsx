@@ -41,6 +41,9 @@ const PAGE_FEED_QUERY = `
         id
         content
         createdAt
+        replyCount
+        viewerEmotion
+        reactionCounts { emotion count }
         author { id username displayName }
       }
       nextCursor
@@ -66,6 +69,9 @@ interface Post {
   id: string;
   content: string;
   createdAt: string;
+  replyCount: number;
+  viewerEmotion: string | null;
+  reactionCounts: { emotion: string; count: number }[];
   author: { id: string; username: string; displayName: string | null };
 }
 
@@ -161,7 +167,7 @@ export default async function FanPageView({ params, searchParams }: PageProps) {
               )}
             </div>
 
-            <div className="flex items-center gap-2 mt-4">
+            <div className="flex flex-wrap items-center gap-2 mt-4">
               <PageFollowButton
                 pageId={page.id}
                 slug={page.slug}

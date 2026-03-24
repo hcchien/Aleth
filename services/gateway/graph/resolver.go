@@ -2654,8 +2654,14 @@ type GatewaySeriesResolver struct {
 	r      *Resolver
 }
 
-func (sr *GatewaySeriesResolver) ID() graphql.ID       { return graphql.ID(sr.series.ID) }
-func (sr *GatewaySeriesResolver) BoardId() graphql.ID  { return graphql.ID(sr.series.BoardID) }
+func (sr *GatewaySeriesResolver) ID() graphql.ID { return graphql.ID(sr.series.ID) }
+func (sr *GatewaySeriesResolver) BoardId() *graphql.ID {
+	if sr.series.BoardID == nil {
+		return nil
+	}
+	id := graphql.ID(*sr.series.BoardID)
+	return &id
+}
 func (sr *GatewaySeriesResolver) Title() string        { return sr.series.Title }
 func (sr *GatewaySeriesResolver) Description() *string { return sr.series.Description }
 func (sr *GatewaySeriesResolver) ArticleCount() int32  { return sr.series.ArticleCount }
@@ -2716,7 +2722,8 @@ func (r *Resolver) BoardSeries(ctx context.Context, args struct{ BoardId graphql
 }
 
 type CreateSeriesInput struct {
-	BoardId     graphql.ID
+	BoardId     *graphql.ID
+	PageId      *graphql.ID
 	Title       string
 	Description *string
 }
@@ -2727,16 +2734,19 @@ type UpdateSeriesInput struct {
 }
 
 func (r *Resolver) CreateSeries(ctx context.Context, args struct{ Input CreateSeriesInput }) (*GatewaySeriesResolver, error) {
-	vars := map[string]any{
-		"boardId": string(args.Input.BoardId),
-		"title":   args.Input.Title,
+	vars := map[string]any{"title": args.Input.Title}
+	if args.Input.BoardId != nil {
+		vars["boardId"] = string(*args.Input.BoardId)
+	}
+	if args.Input.PageId != nil {
+		vars["pageId"] = string(*args.Input.PageId)
 	}
 	if args.Input.Description != nil {
 		vars["description"] = *args.Input.Description
 	}
 	data, err := r.contentGQL(ctx,
-		`mutation($boardId: ID!, $title: String!, $description: String) {
-			createSeries(input: {boardId: $boardId, title: $title, description: $description}) { `+seriesFields+` }
+		`mutation($boardId: ID, $pageId: ID, $title: String!, $description: String) {
+			createSeries(input: {boardId: $boardId, pageId: $pageId, title: $title, description: $description}) { `+seriesFields+` }
 		}`,
 		vars,
 	)
@@ -2750,6 +2760,27 @@ func (r *Resolver) CreateSeries(ctx context.Context, args struct{ Input CreateSe
 		return nil, err
 	}
 	return &GatewaySeriesResolver{series: resp.CreateSeries, r: r}, nil
+}
+
+func (r *Resolver) PageSeries(ctx context.Context, args struct{ PageId graphql.ID }) ([]*GatewaySeriesResolver, error) {
+	data, err := r.contentGQL(ctx,
+		`query($pageId: ID!) { pageSeries(pageId: $pageId) { `+seriesFields+` } }`,
+		map[string]any{"pageId": string(args.PageId)},
+	)
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		PageSeries []client.ContentSeries `json:"pageSeries"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, err
+	}
+	out := make([]*GatewaySeriesResolver, len(resp.PageSeries))
+	for i, s := range resp.PageSeries {
+		out[i] = &GatewaySeriesResolver{series: s, r: r}
+	}
+	return out, nil
 }
 
 func (r *Resolver) UpdateSeries(ctx context.Context, args struct {

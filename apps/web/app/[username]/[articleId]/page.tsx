@@ -174,7 +174,7 @@ export default async function ArticlePage({ params }: PageProps) {
 
           {/* Title */}
           <h1
-            className="mb-8 text-4xl font-bold leading-tight text-[var(--app-text-heading)] tracking-tight"
+            className="mb-8 text-2xl sm:text-3xl lg:text-4xl font-bold leading-tight text-[var(--app-text-heading)] tracking-tight"
             style={{ fontFamily: "var(--font-newsreader), 'Newsreader', Georgia, serif", textWrap: "balance" as const }}
           >
             {article.title}
@@ -229,7 +229,7 @@ export default async function ArticlePage({ params }: PageProps) {
         )}
 
         {/* ── Author card (bottom) ── */}
-        <div className="mt-16 rounded-2xl border border-[var(--app-border-inner)] bg-[var(--app-surface-3)] p-6 flex items-center gap-4">
+        <div className="mt-16 rounded-2xl border border-[var(--app-border-inner)] bg-[var(--app-surface-3)] p-6 flex flex-col sm:flex-row items-start sm:items-center gap-4">
           <Link href={`/@${article.author.username}`} className="shrink-0">
             <div className={`flex h-14 w-14 items-center justify-center rounded-2xl text-xl font-bold ${avatarCls}`}>
               {avatarChar}

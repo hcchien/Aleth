@@ -273,6 +273,7 @@ export function HomeFeedClient({ initialItems, initialCursor, initialHasMore }: 
   const [remoteBefore, setRemoteBefore] = useState<string | null>(null);
   const [remoteLoading, setRemoteLoading] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState(false);
   const fetchedForUserRef = useRef<string | undefined>(undefined);
 
   // Once auth resolves, fetch personalized feed if logged in.
@@ -327,6 +328,7 @@ export function HomeFeedClient({ initialItems, initialCursor, initialHasMore }: 
   async function loadMore() {
     if (loading || !hasMore) return;
     setLoading(true);
+    setLoadError(false);
     try {
       if (feedType === "personalized") {
         const data = await gqlClient<{ feed: FeedConnection }>(
@@ -347,6 +349,7 @@ export function HomeFeedClient({ initialItems, initialCursor, initialHasMore }: 
       }
     } catch (err) {
       console.error("Failed to load more:", err);
+      setLoadError(true);
     } finally {
       setLoading(false);
     }
@@ -432,7 +435,16 @@ export function HomeFeedClient({ initialItems, initialCursor, initialHasMore }: 
             </div>
           )}
 
-          {hasMore && (
+          {loadError && (
+            <div className="py-4 text-center">
+              <p className="mb-2 text-sm text-[var(--app-text-muted)]">Failed to load posts.</p>
+              <button onClick={loadMore} className="text-sm text-[var(--app-accent)] hover:underline">
+                Retry
+              </button>
+            </div>
+          )}
+
+          {hasMore && !loadError && (
             <div className="py-6 text-center">
               <button
                 onClick={loadMore}
@@ -610,11 +622,11 @@ function FeedCard({ item }: { item: FeedItem }) {
         <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-[var(--app-secondary)]" />
       </div>
 
-      <div className="flex gap-6">
+      <div className="flex gap-3 sm:gap-6">
         {/* Square rounded avatar */}
         <div className="flex-shrink-0">
           <span
-            className={`flex h-14 w-14 items-center justify-center rounded-xl text-xl font-bold transition-all duration-500 grayscale opacity-70 group-hover:grayscale-0 group-hover:opacity-100 ${avatarCls}`}
+            className={`flex h-10 w-10 sm:h-14 sm:w-14 items-center justify-center rounded-xl text-base sm:text-xl font-bold transition-all duration-500 grayscale opacity-70 group-hover:grayscale-0 group-hover:opacity-100 ${avatarCls}`}
           >
             {name.slice(0, 1).toUpperCase()}
           </span>

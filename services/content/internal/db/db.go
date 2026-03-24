@@ -889,38 +889,45 @@ func (p *Pool) ListCommentReplies(ctx context.Context, parentID uuid.UUID, limit
 
 type Series struct {
 	ID          uuid.UUID
-	BoardID     uuid.UUID
+	BoardID     *uuid.UUID // nil for page-owned series
+	PageID      *uuid.UUID // nil for board-owned series
 	Title       string
 	Description *string
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }
 
-func (p *Pool) CreateSeries(ctx context.Context, boardID uuid.UUID, title string, description *string) (Series, error) {
-	const q = `
-		INSERT INTO series (board_id, title, description)
-		VALUES ($1, $2, $3)
-		RETURNING id, board_id, title, description, created_at, updated_at
-	`
+func scanSeries(row interface {
+	Scan(dest ...any) error
+}) (Series, error) {
 	var s Series
-	err := p.pool.QueryRow(ctx, q, boardID, title, description).Scan(
-		&s.ID, &s.BoardID, &s.Title, &s.Description, &s.CreatedAt, &s.UpdatedAt,
-	)
+	err := row.Scan(&s.ID, &s.BoardID, &s.PageID, &s.Title, &s.Description, &s.CreatedAt, &s.UpdatedAt)
+	return s, err
+}
+
+const seriesCols = `id, board_id, page_id, title, description, created_at, updated_at`
+
+func (p *Pool) CreateSeries(ctx context.Context, boardID uuid.UUID, title string, description *string) (Series, error) {
+	q := `INSERT INTO series (board_id, title, description) VALUES ($1, $2, $3) RETURNING ` + seriesCols
+	s, err := scanSeries(p.pool.QueryRow(ctx, q, boardID, title, description))
 	if err != nil {
 		return Series{}, fmt.Errorf("create series: %w", err)
 	}
 	return s, nil
 }
 
+func (p *Pool) CreatePageSeries(ctx context.Context, pageID uuid.UUID, title string, description *string) (Series, error) {
+	q := `INSERT INTO series (page_id, title, description) VALUES ($1, $2, $3) RETURNING ` + seriesCols
+	s, err := scanSeries(p.pool.QueryRow(ctx, q, pageID, title, description))
+	if err != nil {
+		return Series{}, fmt.Errorf("create page series: %w", err)
+	}
+	return s, nil
+}
+
 func (p *Pool) GetSeriesByID(ctx context.Context, id uuid.UUID) (Series, error) {
-	const q = `
-		SELECT id, board_id, title, description, created_at, updated_at
-		FROM series WHERE id = $1
-	`
-	var s Series
-	err := p.pool.QueryRow(ctx, q, id).Scan(
-		&s.ID, &s.BoardID, &s.Title, &s.Description, &s.CreatedAt, &s.UpdatedAt,
-	)
+	q := `SELECT ` + seriesCols + ` FROM series WHERE id = $1`
+	s, err := scanSeries(p.pool.QueryRow(ctx, q, id))
 	if err != nil {
 		return Series{}, fmt.Errorf("get series: %w", err)
 	}
@@ -928,11 +935,7 @@ func (p *Pool) GetSeriesByID(ctx context.Context, id uuid.UUID) (Series, error) 
 }
 
 func (p *Pool) ListSeriesByBoard(ctx context.Context, boardID uuid.UUID) ([]Series, error) {
-	const q = `
-		SELECT id, board_id, title, description, created_at, updated_at
-		FROM series WHERE board_id = $1
-		ORDER BY created_at ASC
-	`
+	q := `SELECT ` + seriesCols + ` FROM series WHERE board_id = $1 ORDER BY created_at ASC`
 	rows, err := p.pool.Query(ctx, q, boardID)
 	if err != nil {
 		return nil, fmt.Errorf("list series: %w", err)
@@ -941,8 +944,27 @@ func (p *Pool) ListSeriesByBoard(ctx context.Context, boardID uuid.UUID) ([]Seri
 
 	var out []Series
 	for rows.Next() {
-		var s Series
-		if err := rows.Scan(&s.ID, &s.BoardID, &s.Title, &s.Description, &s.CreatedAt, &s.UpdatedAt); err != nil {
+		s, err := scanSeries(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan series: %w", err)
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
+func (p *Pool) ListSeriesByPage(ctx context.Context, pageID uuid.UUID) ([]Series, error) {
+	q := `SELECT ` + seriesCols + ` FROM series WHERE page_id = $1 ORDER BY created_at ASC`
+	rows, err := p.pool.Query(ctx, q, pageID)
+	if err != nil {
+		return nil, fmt.Errorf("list page series: %w", err)
+	}
+	defer rows.Close()
+
+	var out []Series
+	for rows.Next() {
+		s, err := scanSeries(rows)
+		if err != nil {
 			return nil, fmt.Errorf("scan series: %w", err)
 		}
 		out = append(out, s)
@@ -951,15 +973,8 @@ func (p *Pool) ListSeriesByBoard(ctx context.Context, boardID uuid.UUID) ([]Seri
 }
 
 func (p *Pool) UpdateSeries(ctx context.Context, id uuid.UUID, title string, description *string) (Series, error) {
-	const q = `
-		UPDATE series SET title = $2, description = $3, updated_at = now()
-		WHERE id = $1
-		RETURNING id, board_id, title, description, created_at, updated_at
-	`
-	var s Series
-	err := p.pool.QueryRow(ctx, q, id, title, description).Scan(
-		&s.ID, &s.BoardID, &s.Title, &s.Description, &s.CreatedAt, &s.UpdatedAt,
-	)
+	q := `UPDATE series SET title = $2, description = $3, updated_at = now() WHERE id = $1 RETURNING ` + seriesCols
+	s, err := scanSeries(p.pool.QueryRow(ctx, q, id, title, description))
 	if err != nil {
 		return Series{}, fmt.Errorf("update series: %w", err)
 	}

@@ -59,7 +59,7 @@ export default async function RootLayout({
   const theme = cookieStore.get("theme")?.value === "dark" ? "dark" : "light";
 
   return (
-    <html lang={locale} className={theme} suppressHydrationWarning>
+    <html lang={locale} className={theme} suppressHydrationWarning data-scroll-behavior="smooth">
       <body
         className={`${inter.variable} ${manrope.variable} ${newsreader.variable} ${playfair.variable} ${lora.variable} ${jetbrainsMono.variable} antialiased`}
       >

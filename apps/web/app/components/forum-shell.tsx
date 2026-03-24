@@ -288,7 +288,7 @@ export async function ForumShell({
       </aside>
 
       {/* ── Main Content ── */}
-      <main className="md:ml-64 xl:mr-80 pt-24 pb-24 md:pb-20 px-4 md:px-12 max-w-5xl">
+      <main className="md:ml-64 xl:mr-80 pt-20 pb-24 md:pb-10 px-4 sm:px-6 md:px-10 lg:px-16">
         {children}
       </main>
 

@@ -86,7 +86,7 @@ type ContentArticle struct {
 // ContentSeries is a series as returned by the Content service.
 type ContentSeries struct {
 	ID           string           `json:"id"`
-	BoardID      string           `json:"boardId"`
+	BoardID      *string          `json:"boardId"`
 	Title        string           `json:"title"`
 	Description  *string          `json:"description"`
 	ArticleCount int32            `json:"articleCount"`

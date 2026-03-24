@@ -83,7 +83,7 @@ type Post {
 
 type Series {
   id: ID!
-  boardId: ID!
+  boardId: ID
   title: String!
   description: String
   articleCount: Int!
@@ -93,7 +93,8 @@ type Series {
 }
 
 input CreateSeriesInput {
-  boardId: ID!
+  boardId: ID
+  pageId: ID
   title: String!
   description: String
 }
@@ -363,6 +364,7 @@ type Query {
   # Series
   series(id: ID!): Series
   boardSeries(boardId: ID!): [Series!]!
+  pageSeries(pageId: ID!): [Series!]!
 
   # VC registry
   availableVcTypes: [VcTypeInfo!]!

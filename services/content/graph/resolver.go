@@ -1468,7 +1468,13 @@ type SeriesResolver struct {
 }
 
 func (r *SeriesResolver) ID() graphql.ID        { return graphql.ID(r.series.ID.String()) }
-func (r *SeriesResolver) BoardId() graphql.ID   { return graphql.ID(r.series.BoardID.String()) }
+func (r *SeriesResolver) BoardId() *graphql.ID {
+	if r.series.BoardID == nil {
+		return nil
+	}
+	id := graphql.ID(r.series.BoardID.String())
+	return &id
+}
 func (r *SeriesResolver) Title() string         { return r.series.Title }
 func (r *SeriesResolver) Description() *string  { return r.series.Description }
 func (r *SeriesResolver) CreatedAt() string     { return r.series.CreatedAt.UTC().Format(time.RFC3339) }
@@ -1522,7 +1528,8 @@ func (r *Resolver) BoardSeries(ctx context.Context, args struct{ BoardId graphql
 }
 
 type CreateSeriesInput struct {
-	BoardId     graphql.ID
+	BoardId     *graphql.ID
+	PageId      *graphql.ID
 	Title       string
 	Description *string
 }
@@ -1541,7 +1548,21 @@ func (r *Resolver) CreateSeries(ctx context.Context, args struct{ Input CreateSe
 	if err != nil {
 		return nil, fmt.Errorf("invalid user ID in token")
 	}
-	boardID, err := uuid.Parse(string(args.Input.BoardId))
+	if args.Input.PageId != nil {
+		pageID, err := uuid.Parse(string(*args.Input.PageId))
+		if err != nil {
+			return nil, fmt.Errorf("invalid page ID")
+		}
+		series, err := r.svc.CreatePageSeries(ctx, callerID, pageID, args.Input.Title, args.Input.Description)
+		if err != nil {
+			return nil, err
+		}
+		return &SeriesResolver{series: series, svc: r.svc}, nil
+	}
+	if args.Input.BoardId == nil {
+		return nil, fmt.Errorf("either boardId or pageId is required")
+	}
+	boardID, err := uuid.Parse(string(*args.Input.BoardId))
 	if err != nil {
 		return nil, fmt.Errorf("invalid board ID")
 	}
@@ -1550,6 +1571,22 @@ func (r *Resolver) CreateSeries(ctx context.Context, args struct{ Input CreateSe
 		return nil, err
 	}
 	return &SeriesResolver{series: series, svc: r.svc}, nil
+}
+
+func (r *Resolver) PageSeries(ctx context.Context, args struct{ PageId graphql.ID }) ([]*SeriesResolver, error) {
+	pageID, err := uuid.Parse(string(args.PageId))
+	if err != nil {
+		return nil, fmt.Errorf("invalid page ID")
+	}
+	seriesList, err := r.svc.ListSeriesByPage(ctx, pageID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*SeriesResolver, len(seriesList))
+	for i, s := range seriesList {
+		out[i] = &SeriesResolver{series: s, svc: r.svc}
+	}
+	return out, nil
 }
 
 func (r *Resolver) UpdateSeries(ctx context.Context, args struct {

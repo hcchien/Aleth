@@ -18,6 +18,7 @@ type ContentPost struct {
 	NoteTitle      *string                `json:"noteTitle"`
 	NoteCover      *string                `json:"noteCover"`
 	NoteSummary    *string                `json:"noteSummary"`
+	ImageURLs      []string               `json:"imageUrls"`
 	ResharedFromID *string                `json:"resharedFromId"`
 	ReplyCount     int32                  `json:"replyCount"`
 	LikeCount      int32                  `json:"likeCount"`
@@ -85,7 +86,7 @@ type ContentArticle struct {
 // ContentSeries is a series as returned by the Content service.
 type ContentSeries struct {
 	ID           string           `json:"id"`
-	BoardID      string           `json:"boardId"`
+	BoardID      *string          `json:"boardId"`
 	Title        string           `json:"title"`
 	Description  *string          `json:"description"`
 	ArticleCount int32            `json:"articleCount"`

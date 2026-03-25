@@ -69,6 +69,27 @@ func (r *Resolver) Me(ctx context.Context) (*UserResolver, error) {
 	return &UserResolver{user: *user}, nil
 }
 
+// MyCredentialTypes returns the distinct credential types (e.g. "passkey", "google") for the
+// current user.  Returns an empty list for unauthenticated callers.
+func (r *Resolver) MyCredentialTypes(ctx context.Context) ([]string, error) {
+	claims, ok := ClaimsFromContext(ctx)
+	if !ok {
+		return []string{}, nil
+	}
+	uid, err := uuid.Parse(claims.Subject)
+	if err != nil {
+		return nil, fmt.Errorf("invalid subject claim")
+	}
+	types, err := r.auth.ListCredentialTypes(ctx, uid)
+	if err != nil {
+		return nil, err
+	}
+	if types == nil {
+		return []string{}, nil
+	}
+	return types, nil
+}
+
 // DidDocument returns a stub DID document for the given DID.
 func (r *Resolver) DidDocument(ctx context.Context, args struct{ Did string }) (*string, error) {
 	s := fmt.Sprintf(`{"id":%q,"@context":"https://www.w3.org/ns/did/v1"}`, args.Did)
@@ -468,6 +489,40 @@ func (r *Resolver) VerifyPhoneOTP(ctx context.Context, args struct {
 	return &AuthPayloadResolver{result: result}, nil
 }
 
+// StartSocialVerification builds an OAuth authorization URL for the given provider
+// and returns it so the frontend can redirect the user there.
+func (r *Resolver) StartSocialVerification(ctx context.Context, args struct{ Provider string }) (string, error) {
+	claims, ok := ClaimsFromContext(ctx)
+	if !ok {
+		return "", fmt.Errorf("not authenticated")
+	}
+	userID, err := uuid.Parse(claims.Subject)
+	if err != nil {
+		return "", fmt.Errorf("invalid subject claim")
+	}
+	return r.auth.StartSocialOAuth(ctx, userID, args.Provider)
+}
+
+// RequestPasswordReset initiates a password reset for the given email address.
+// Always returns true to prevent user enumeration.
+func (r *Resolver) RequestPasswordReset(ctx context.Context, args struct{ Email string }) (bool, error) {
+	if err := r.auth.RequestPasswordReset(ctx, args.Email); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// ResetPassword validates the reset token and sets a new password.
+func (r *Resolver) ResetPassword(ctx context.Context, args struct {
+	Token       string
+	NewPassword string
+}) (bool, error) {
+	if err := r.auth.ResetPassword(ctx, args.Token, args.NewPassword); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // SetActivityPubEnabled opts the current user in or out of ActivityPub federation.
 func (r *Resolver) SetActivityPubEnabled(ctx context.Context, args struct{ Enabled bool }) (bool, error) {
 	claims, ok := ClaimsFromContext(ctx)
@@ -479,6 +534,65 @@ func (r *Resolver) SetActivityPubEnabled(ctx context.Context, args struct{ Enabl
 		return false, fmt.Errorf("invalid subject claim")
 	}
 	if _, err := r.auth.SetAPEnabled(ctx, userID, args.Enabled); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// DisconnectOAuth removes an OAuth credential type from the current user's account.
+func (r *Resolver) DisconnectOAuth(ctx context.Context, args struct{ Provider string }) (bool, error) {
+	claims, ok := ClaimsFromContext(ctx)
+	if !ok {
+		return false, fmt.Errorf("not authenticated")
+	}
+	userID, err := uuid.Parse(claims.Subject)
+	if err != nil {
+		return false, fmt.Errorf("invalid subject claim")
+	}
+	if err := r.auth.DisconnectOAuth(ctx, userID, args.Provider); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// VerifyEmail consumes a single-use token from the verification link and marks
+// the user's email as verified.  Does not require authentication.
+func (r *Resolver) VerifyEmail(ctx context.Context, args struct{ Token string }) (bool, error) {
+	if err := r.auth.VerifyEmail(ctx, args.Token); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// ResendVerificationEmail re-sends the verification link to the authenticated
+// user's email address.
+func (r *Resolver) ResendVerificationEmail(ctx context.Context) (bool, error) {
+	claims, ok := ClaimsFromContext(ctx)
+	if !ok {
+		return false, fmt.Errorf("not authenticated")
+	}
+	userID, err := uuid.Parse(claims.Subject)
+	if err != nil {
+		return false, fmt.Errorf("invalid subject claim")
+	}
+	if err := r.auth.ResendVerificationEmail(ctx, userID); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// DeleteAccount permanently deletes the authenticated user's account and
+// anonymises their PII. All active sessions are revoked immediately.
+func (r *Resolver) DeleteAccount(ctx context.Context) (bool, error) {
+	claims, ok := ClaimsFromContext(ctx)
+	if !ok {
+		return false, fmt.Errorf("not authenticated")
+	}
+	userID, err := uuid.Parse(claims.Subject)
+	if err != nil {
+		return false, fmt.Errorf("invalid subject claim")
+	}
+	if err := r.auth.DeleteAccount(ctx, userID); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -510,14 +624,15 @@ type UserResolver struct {
 	user db.User
 }
 
-func (r *UserResolver) ID() graphql.ID       { return graphql.ID(r.user.ID.String()) }
-func (r *UserResolver) Did() string          { return r.user.DID }
-func (r *UserResolver) Username() string     { return r.user.Username }
-func (r *UserResolver) DisplayName() *string { return r.user.DisplayName }
-func (r *UserResolver) Email() *string       { return r.user.Email }
-func (r *UserResolver) TrustLevel() int32    { return int32(r.user.TrustLevel) }
-func (r *UserResolver) ApEnabled() bool      { return r.user.APEnabled }
-func (r *UserResolver) CreatedAt() string    { return r.user.CreatedAt.UTC().Format(time.RFC3339) }
+func (r *UserResolver) ID() graphql.ID        { return graphql.ID(r.user.ID.String()) }
+func (r *UserResolver) Did() string           { return r.user.DID }
+func (r *UserResolver) Username() string      { return r.user.Username }
+func (r *UserResolver) DisplayName() *string  { return r.user.DisplayName }
+func (r *UserResolver) Email() *string        { return r.user.Email }
+func (r *UserResolver) EmailVerified() bool   { return r.user.EmailVerified }
+func (r *UserResolver) TrustLevel() int32     { return int32(r.user.TrustLevel) }
+func (r *UserResolver) ApEnabled() bool       { return r.user.APEnabled }
+func (r *UserResolver) CreatedAt() string     { return r.user.CreatedAt.UTC().Format(time.RFC3339) }
 
 // AuthPayloadResolver resolves fields on the GraphQL AuthPayload type.
 type AuthPayloadResolver struct {

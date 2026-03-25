@@ -1,5 +1,6 @@
 steps:
-  # ── Tests ────────────────────────────────────────────────────────────────
+  # ── Tests (parallel) ─────────────────────────────────────────────────────────
+
   - id: go-test-auth
     name: golang:1.23
     entrypoint: go
@@ -28,6 +29,27 @@ steps:
     dir: services/gateway
     env: [CGO_ENABLED=0]
 
+  - id: go-test-feed
+    name: golang:1.23
+    entrypoint: go
+    args: [test, ./...]
+    dir: services/feed
+    env: [CGO_ENABLED=0]
+
+  - id: go-test-notification
+    name: golang:1.23
+    entrypoint: go
+    args: [test, ./...]
+    dir: services/notification
+    env: [CGO_ENABLED=0]
+
+  - id: go-test-counter
+    name: golang:1.23
+    entrypoint: go
+    args: [test, ./...]
+    dir: services/counter
+    env: [CGO_ENABLED=0]
+
   - id: next-lint-web
     name: node:22
     entrypoint: pnpm
@@ -38,7 +60,8 @@ steps:
     entrypoint: pnpm
     args: [--filter, admin, lint]
 
-  # ── DB Migrations (before deploy) ────────────────────────────────────────
+  # ── DB Migrations (run before building images) ────────────────────────────────
+
   - id: db-migrate-auth
     name: gcr.io/$PROJECT_ID/goose:latest
     args: [up]
@@ -60,7 +83,16 @@ steps:
     secretEnv: [GOOSE_DBSTRING_FEDERATION]
     waitFor: [go-test-federation]
 
-  # ── Build images ─────────────────────────────────────────────────────────
+  - id: db-migrate-notification
+    name: gcr.io/$PROJECT_ID/goose:latest
+    # notification uses a non-default goose table name
+    args: [-table, goose_notification_versions, up]
+    dir: migrations/notification
+    secretEnv: [GOOSE_DBSTRING_NOTIFICATION]
+    waitFor: [go-test-notification]
+
+  # ── Build Docker images ───────────────────────────────────────────────────────
+
   - id: build-auth
     name: gcr.io/cloud-builders/docker
     args:
@@ -105,7 +137,52 @@ steps:
       - .
     waitFor: [go-test-gateway]
 
-  # ── Push images ───────────────────────────────────────────────────────────
+  - id: build-feed
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - infra/docker/feed.Dockerfile
+      - -t
+      - $_REGION-docker.pkg.dev/$PROJECT_ID/aleth/feed:$SHORT_SHA
+      - .
+    waitFor: [go-test-feed]
+
+  - id: build-notification
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - infra/docker/notification.Dockerfile
+      - -t
+      - $_REGION-docker.pkg.dev/$PROJECT_ID/aleth/notification:$SHORT_SHA
+      - .
+    waitFor: [db-migrate-notification]
+
+  - id: build-counter
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - infra/docker/counter.Dockerfile
+      - -t
+      - $_REGION-docker.pkg.dev/$PROJECT_ID/aleth/counter:$SHORT_SHA
+      - .
+    waitFor: [go-test-counter]
+
+  - id: build-web
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - infra/docker/web.Dockerfile
+      - -t
+      - $_REGION-docker.pkg.dev/$PROJECT_ID/aleth/web:$SHORT_SHA
+      - .
+    waitFor: [next-lint-web]
+
+  # ── Push images to Artifact Registry (parallel) ───────────────────────────────
+
   - id: push-auth
     name: gcr.io/cloud-builders/docker
     args: [push, $_REGION-docker.pkg.dev/$PROJECT_ID/aleth/auth:$SHORT_SHA]
@@ -126,58 +203,151 @@ steps:
     args: [push, $_REGION-docker.pkg.dev/$PROJECT_ID/aleth/gateway:$SHORT_SHA]
     waitFor: [build-gateway]
 
-  # ── Deploy to GKE ─────────────────────────────────────────────────────────
+  - id: push-feed
+    name: gcr.io/cloud-builders/docker
+    args: [push, $_REGION-docker.pkg.dev/$PROJECT_ID/aleth/feed:$SHORT_SHA]
+    waitFor: [build-feed]
+
+  - id: push-notification
+    name: gcr.io/cloud-builders/docker
+    args: [push, $_REGION-docker.pkg.dev/$PROJECT_ID/aleth/notification:$SHORT_SHA]
+    waitFor: [build-notification]
+
+  - id: push-counter
+    name: gcr.io/cloud-builders/docker
+    args: [push, $_REGION-docker.pkg.dev/$PROJECT_ID/aleth/counter:$SHORT_SHA]
+    waitFor: [build-counter]
+
+  - id: push-web
+    name: gcr.io/cloud-builders/docker
+    args: [push, $_REGION-docker.pkg.dev/$PROJECT_ID/aleth/web:$SHORT_SHA]
+    waitFor: [build-web]
+
+  # ── Deploy to Cloud Run ───────────────────────────────────────────────────────
+  # First deploy: env vars must be set manually via gcloud run deploy --set-env-vars.
+  # Subsequent deploys via this pipeline preserve existing configuration.
+  # See docs/deploy.md for the full env var list per service.
+
+  # Internal services — not directly reachable from the internet
   - id: deploy-auth
-    name: gcr.io/cloud-builders/kubectl
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
     args:
-      - set
-      - image
-      - deployment/auth
-      - auth=$_REGION-docker.pkg.dev/$PROJECT_ID/aleth/auth:$SHORT_SHA
-    env:
-      - CLOUDSDK_COMPUTE_REGION=$_REGION
-      - CLOUDSDK_CONTAINER_CLUSTER=aleth-$_ENV
+      - run
+      - deploy
+      - auth
+      - --image=$_REGION-docker.pkg.dev/$PROJECT_ID/aleth/auth:$SHORT_SHA
+      - --region=$_REGION
+      - --platform=managed
+      - --port=8081
+      - --no-allow-unauthenticated
     waitFor: [push-auth]
 
   - id: deploy-content
-    name: gcr.io/cloud-builders/kubectl
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
     args:
-      - set
-      - image
-      - deployment/content
-      - content=$_REGION-docker.pkg.dev/$PROJECT_ID/aleth/content:$SHORT_SHA
-    env:
-      - CLOUDSDK_COMPUTE_REGION=$_REGION
-      - CLOUDSDK_CONTAINER_CLUSTER=aleth-$_ENV
+      - run
+      - deploy
+      - content
+      - --image=$_REGION-docker.pkg.dev/$PROJECT_ID/aleth/content:$SHORT_SHA
+      - --region=$_REGION
+      - --platform=managed
+      - --port=8082
+      - --no-allow-unauthenticated
     waitFor: [push-content]
 
-  - id: deploy-federation
-    name: gcr.io/cloud-builders/kubectl
+  - id: deploy-feed
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
     args:
-      - set
-      - image
-      - deployment/federation
-      - federation=$_REGION-docker.pkg.dev/$PROJECT_ID/aleth/federation:$SHORT_SHA
-    env:
-      - CLOUDSDK_COMPUTE_REGION=$_REGION
-      - CLOUDSDK_CONTAINER_CLUSTER=aleth-$_ENV
-    waitFor: [push-federation]
+      - run
+      - deploy
+      - feed
+      - --image=$_REGION-docker.pkg.dev/$PROJECT_ID/aleth/feed:$SHORT_SHA
+      - --region=$_REGION
+      - --platform=managed
+      - --port=8083
+      - --no-allow-unauthenticated
+    waitFor: [push-feed]
+
+  - id: deploy-notification
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - notification
+      - --image=$_REGION-docker.pkg.dev/$PROJECT_ID/aleth/notification:$SHORT_SHA
+      - --region=$_REGION
+      - --platform=managed
+      - --port=8086
+      - --no-allow-unauthenticated
+      - --min-instances=1   # keeps Pub/Sub pull subscription alive
+    waitFor: [push-notification]
+
+  - id: deploy-counter
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - counter
+      - --image=$_REGION-docker.pkg.dev/$PROJECT_ID/aleth/counter:$SHORT_SHA
+      - --region=$_REGION
+      - --platform=managed
+      - --port=8080
+      - --no-allow-unauthenticated
+      - --min-instances=1   # keeps Pub/Sub pull subscription alive
+    waitFor: [push-counter]
+
+  # Public services — reachable from the internet
 
   - id: deploy-gateway
-    name: gcr.io/cloud-builders/kubectl
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
     args:
-      - set
-      - image
-      - deployment/gateway
-      - gateway=$_REGION-docker.pkg.dev/$PROJECT_ID/aleth/gateway:$SHORT_SHA
-    env:
-      - CLOUDSDK_COMPUTE_REGION=$_REGION
-      - CLOUDSDK_CONTAINER_CLUSTER=aleth-$_ENV
+      - run
+      - deploy
+      - gateway
+      - --image=$_REGION-docker.pkg.dev/$PROJECT_ID/aleth/gateway:$SHORT_SHA
+      - --region=$_REGION
+      - --platform=managed
+      - --port=8080
+      - --allow-unauthenticated
     waitFor: [push-gateway]
+
+  - id: deploy-federation
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - federation
+      - --image=$_REGION-docker.pkg.dev/$PROJECT_ID/aleth/federation:$SHORT_SHA
+      - --region=$_REGION
+      - --platform=managed
+      - --port=8084
+      - --allow-unauthenticated   # must receive inbound ActivityPub requests
+    waitFor: [push-federation]
+
+  - id: deploy-web
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - web
+      - --image=$_REGION-docker.pkg.dev/$PROJECT_ID/aleth/web:$SHORT_SHA
+      - --region=$_REGION
+      - --platform=managed
+      - --port=3000
+      - --allow-unauthenticated
+    waitFor: [push-web]
 
 substitutions:
   _REGION: asia-east1
-  _ENV: staging
+  _ENV: production
 
 availableSecrets:
   secretManager:
@@ -187,6 +357,8 @@ availableSecrets:
       env: GOOSE_DBSTRING_CONTENT
     - versionName: projects/$PROJECT_ID/secrets/federation-db-url/versions/latest
       env: GOOSE_DBSTRING_FEDERATION
+    - versionName: projects/$PROJECT_ID/secrets/notification-db-url/versions/latest
+      env: GOOSE_DBSTRING_NOTIFICATION
 
 options:
   logging: CLOUD_LOGGING_ONLY

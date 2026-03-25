@@ -3,8 +3,14 @@ package service
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -152,6 +158,54 @@ func (f *fakeAuthStore) UpsertPhoneOTP(ctx context.Context, userID uuid.UUID, ph
 }
 func (f *fakeAuthStore) VerifyPhoneOTP(ctx context.Context, userID uuid.UUID, phone, code string) (bool, error) {
 	return f.verifyPhoneOTPFn(ctx, userID, phone, code)
+}
+func (f *fakeAuthStore) UpsertOAuthState(_ context.Context, _ db.UpsertOAuthStateParams) error {
+	return nil
+}
+func (f *fakeAuthStore) GetOAuthState(_ context.Context, _ string) (db.OAuthState, error) {
+	return db.OAuthState{}, fmt.Errorf("not found")
+}
+func (f *fakeAuthStore) DeleteOAuthState(_ context.Context, _ string) error {
+	return nil
+}
+func (f *fakeAuthStore) CreatePasswordResetToken(_ context.Context, _ uuid.UUID, _ string, _ time.Time) error {
+	return nil
+}
+func (f *fakeAuthStore) GetPasswordResetToken(_ context.Context, _ string) (*db.PasswordResetToken, error) {
+	return nil, nil
+}
+func (f *fakeAuthStore) DeletePasswordResetToken(_ context.Context, _ string) error {
+	return nil
+}
+func (f *fakeAuthStore) UpdatePasswordCredential(_ context.Context, _ uuid.UUID, _ []byte) error {
+	return nil
+}
+func (f *fakeAuthStore) ListCredentialTypes(_ context.Context, _ uuid.UUID) ([]string, error) {
+	return []string{"passkey"}, nil
+}
+func (f *fakeAuthStore) DeleteCredentialByType(_ context.Context, _ uuid.UUID, _ string) error {
+	return nil
+}
+func (f *fakeAuthStore) CreateEmailVerificationToken(_ context.Context, _ uuid.UUID, _ string, _ time.Time) error {
+	return nil
+}
+func (f *fakeAuthStore) GetEmailVerificationToken(_ context.Context, _ string) (*db.EmailVerificationToken, error) {
+	return nil, nil
+}
+func (f *fakeAuthStore) DeleteEmailVerificationToken(_ context.Context, _ string) error {
+	return nil
+}
+func (f *fakeAuthStore) DeleteEmailVerificationTokensByUser(_ context.Context, _ uuid.UUID) error {
+	return nil
+}
+func (f *fakeAuthStore) MarkEmailVerified(_ context.Context, _ uuid.UUID) error {
+	return nil
+}
+func (f *fakeAuthStore) SoftDeleteUser(_ context.Context, _ uuid.UUID) error {
+	return nil
+}
+func (f *fakeAuthStore) UpdatePasskeySignCount(_ context.Context, _ string, _ uint32) error {
+	return nil
 }
 
 func newHappyStore() *fakeAuthStore {
@@ -505,7 +559,82 @@ func TestRegisterPasskey(t *testing.T) {
 	}
 }
 
+// buildCOSEKey encodes an ECDSA P-256 public key in CBOR/COSE Key format
+// compatible with webauthncose.ParsePublicKey.
+func buildCOSEKey(pub *ecdsa.PublicKey) []byte {
+	x := pub.X.Bytes()
+	y := pub.Y.Bytes()
+	// Pad to 32 bytes
+	for len(x) < 32 {
+		x = append([]byte{0}, x...)
+	}
+	for len(y) < 32 {
+		y = append([]byte{0}, y...)
+	}
+	// Minimal CBOR map: {1:2, 3:-7, -1:1, -2:x, -3:y}
+	// kty=EC2(2), alg=ES256(-7), crv=P-256(1)
+	buf := []byte{
+		0xa5,       // map(5)
+		0x01, 0x02, // 1: 2 (kty: EC2)
+		0x03, 0x26, // 3: -7 (alg: ES256)
+		0x20, 0x01, // -1: 1 (crv: P-256)
+		0x21, 0x58, 0x20, // -2: bytes(32)
+	}
+	buf = append(buf, x...)
+	buf = append(buf, 0x22, 0x58, 0x20) // -3: bytes(32)
+	buf = append(buf, y...)
+	return buf
+}
+
+// buildAuthenticatorData constructs a minimal authenticatorData for the given rpID with
+// flags=0x01 (user present) and the given signCount.
+func buildAuthenticatorData(rpID string, signCount uint32) []byte {
+	rpIDHash := sha256.Sum256([]byte(rpID))
+	data := make([]byte, 37)
+	copy(data[:32], rpIDHash[:])
+	data[32] = 0x01 // flags: UP=1
+	binary.BigEndian.PutUint32(data[33:37], signCount)
+	return data
+}
+
+// signWebAuthn signs the standard WebAuthn verification data (authData || sha256(clientDataJSON)).
+func signWebAuthn(key *ecdsa.PrivateKey, authData, clientDataJSON []byte) []byte {
+	clientDataHash := sha256.Sum256(clientDataJSON)
+	verificationData := append(authData, clientDataHash[:]...)
+	hash := sha256.Sum256(verificationData)
+	r, s, _ := ecdsa.Sign(rand.Reader, key, hash[:])
+	// Encode as ASN.1 DER — webauthncose expects this format for ES256
+	// We'll use a simple manual DER encoding
+	rBytes := r.Bytes()
+	sBytes := s.Bytes()
+	// Pad with leading zero if high bit set (DER integer encoding)
+	if rBytes[0]&0x80 != 0 {
+		rBytes = append([]byte{0}, rBytes...)
+	}
+	if sBytes[0]&0x80 != 0 {
+		sBytes = append([]byte{0}, sBytes...)
+	}
+	seq := []byte{0x02, byte(len(rBytes))}
+	seq = append(seq, rBytes...)
+	seq = append(seq, 0x02, byte(len(sBytes)))
+	seq = append(seq, sBytes...)
+	der := []byte{0x30, byte(len(seq))}
+	der = append(der, seq...)
+	return der
+}
+
 func TestPasskeyLoginFlow(t *testing.T) {
+	// Generate a real ECDSA P-256 key pair for WebAuthn testing.
+	privKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	coseKey := buildCOSEKey(&privKey.PublicKey)
+	credData, _ := json.Marshal(map[string]any{
+		"credentialPublicKey": base64.RawURLEncoding.EncodeToString(coseKey),
+		"signCount":          0,
+	})
+
 	st := newHappyStore()
 	uID := uuid.New()
 	st.getUserByUsernameFn = func(context.Context, string) (db.User, error) {
@@ -515,13 +644,14 @@ func TestPasskeyLoginFlow(t *testing.T) {
 		return []string{"cred-1"}, nil
 	}
 	st.getOAuthCredentialFn = func(context.Context, string, string) (db.UserCredential, error) {
-		return db.UserCredential{UserID: uID, Type: "passkey"}, nil
+		return db.UserCredential{UserID: uID, Type: "passkey", CredentialData: credData}, nil
 	}
 	st.getUserByIDFn = func(context.Context, uuid.UUID) (db.User, error) {
 		return db.User{ID: uID, Username: "alice", TrustLevel: 1}, nil
 	}
 
 	s := NewAuthService(st, NewTokenService("a", "b", time.Minute, time.Hour), "cid")
+	s.SetPasskeyRPOrigin("http://localhost:3000")
 	username := "alice"
 	opts, err := s.BeginPasskeyLogin(context.Background(), &username)
 	if err != nil {
@@ -531,16 +661,20 @@ func TestPasskeyLoginFlow(t *testing.T) {
 		t.Fatalf("expected challenge fields")
 	}
 
-	clientData, _ := json.Marshal(map[string]string{
+	authData := buildAuthenticatorData("localhost", 1)
+	clientDataJSON, _ := json.Marshal(map[string]string{
 		"type":      "webauthn.get",
 		"challenge": opts.Challenge,
+		"origin":    "http://localhost:3000",
 	})
+	sig := signWebAuthn(privKey, authData, clientDataJSON)
+
 	assertion := PasskeyAssertion{
 		CredentialID:      "cred-1",
 		ChallengeToken:    opts.ChallengeToken,
-		ClientDataJSON:    base64.RawURLEncoding.EncodeToString(clientData),
-		AuthenticatorData: base64.RawURLEncoding.EncodeToString([]byte("auth")),
-		Signature:         base64.RawURLEncoding.EncodeToString([]byte("sig")),
+		ClientDataJSON:    base64.RawURLEncoding.EncodeToString(clientDataJSON),
+		AuthenticatorData: base64.RawURLEncoding.EncodeToString(authData),
+		Signature:         base64.RawURLEncoding.EncodeToString(sig),
 	}
 	res, err := s.FinishPasskeyLogin(context.Background(), assertion)
 	if err != nil {
@@ -593,6 +727,17 @@ func TestBeginPasskeyLoginUserNotFound(t *testing.T) {
 }
 
 func TestFinishPasskeyLoginUsernameMismatch(t *testing.T) {
+	// Generate a real ECDSA P-256 key pair.
+	privKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	coseKey := buildCOSEKey(&privKey.PublicKey)
+	credData, _ := json.Marshal(map[string]any{
+		"credentialPublicKey": base64.RawURLEncoding.EncodeToString(coseKey),
+		"signCount":          0,
+	})
+
 	st := newHappyStore()
 	u1 := uuid.New()
 	u2 := uuid.New()
@@ -606,25 +751,31 @@ func TestFinishPasskeyLoginUsernameMismatch(t *testing.T) {
 		return []string{"cred-1"}, nil
 	}
 	st.getOAuthCredentialFn = func(context.Context, string, string) (db.UserCredential, error) {
-		return db.UserCredential{UserID: u2, Type: "passkey"}, nil
+		return db.UserCredential{UserID: u2, Type: "passkey", CredentialData: credData}, nil
 	}
 
 	s := NewAuthService(st, NewTokenService("a", "b", time.Minute, time.Hour), "cid")
+	s.SetPasskeyRPOrigin("http://localhost:3000")
 	username := "alice"
 	opts, err := s.BeginPasskeyLogin(context.Background(), &username)
 	if err != nil {
 		t.Fatalf("BeginPasskeyLogin error: %v", err)
 	}
-	clientData, _ := json.Marshal(map[string]string{
+
+	authData := buildAuthenticatorData("localhost", 1)
+	clientDataJSON, _ := json.Marshal(map[string]string{
 		"type":      "webauthn.get",
 		"challenge": opts.Challenge,
+		"origin":    "http://localhost:3000",
 	})
+	sig := signWebAuthn(privKey, authData, clientDataJSON)
+
 	_, err = s.FinishPasskeyLogin(context.Background(), PasskeyAssertion{
 		CredentialID:      "cred-1",
 		ChallengeToken:    opts.ChallengeToken,
-		ClientDataJSON:    base64.RawURLEncoding.EncodeToString(clientData),
-		AuthenticatorData: base64.RawURLEncoding.EncodeToString([]byte("auth")),
-		Signature:         base64.RawURLEncoding.EncodeToString([]byte("sig")),
+		ClientDataJSON:    base64.RawURLEncoding.EncodeToString(clientDataJSON),
+		AuthenticatorData: base64.RawURLEncoding.EncodeToString(authData),
+		Signature:         base64.RawURLEncoding.EncodeToString(sig),
 	})
 	if err == nil || !strings.Contains(err.Error(), "credential-user mismatch") {
 		t.Fatalf("expected credential-user mismatch, got %v", err)

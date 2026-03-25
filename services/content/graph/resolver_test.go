@@ -117,9 +117,10 @@ func TestResolverValidationBranches(t *testing.T) {
 func TestSeriesResolver_Fields(t *testing.T) {
 	now := time.Now()
 	desc := "A description"
+	boardID := uuid.New()
 	s := db.Series{
 		ID:          uuid.New(),
-		BoardID:     uuid.New(),
+		BoardID:     &boardID,
 		Title:       "Test Series",
 		Description: &desc,
 		CreatedAt:   now,
@@ -131,8 +132,8 @@ func TestSeriesResolver_Fields(t *testing.T) {
 	if string(sr.ID()) != s.ID.String() {
 		t.Errorf("ID: got %s want %s", sr.ID(), s.ID)
 	}
-	if string(sr.BoardId()) != s.BoardID.String() {
-		t.Errorf("BoardId: got %s want %s", sr.BoardId(), s.BoardID)
+	if sr.BoardId() == nil || string(*sr.BoardId()) != boardID.String() {
+		t.Errorf("BoardId: got %v want %s", sr.BoardId(), boardID)
 	}
 	if sr.Title() != "Test Series" {
 		t.Errorf("Title: got %q", sr.Title())
@@ -146,9 +147,10 @@ func TestSeriesResolver_Fields(t *testing.T) {
 }
 
 func TestSeriesResolver_NilDescription(t *testing.T) {
+	boardID := uuid.New()
 	s := db.Series{
 		ID:          uuid.New(),
-		BoardID:     uuid.New(),
+		BoardID:     &boardID,
 		Title:       "No Desc",
 		Description: nil,
 		CreatedAt:   time.Now(),

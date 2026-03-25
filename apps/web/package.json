@@ -11,6 +11,7 @@
   "dependencies": {
     "@apollo/client": "^4.1.6",
     "@apollo/experimental-nextjs-app-support": "^0.14.4",
+    "@google-cloud/storage": "^7.19.0",
     "@tiptap/extension-image": "^3.20.0",
     "@tiptap/react": "^3.20.0",
     "@tiptap/starter-kit": "^3.20.0",

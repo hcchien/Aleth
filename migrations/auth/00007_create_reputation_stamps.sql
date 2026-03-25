@@ -1,3 +1,4 @@
+-- +goose Up
 -- reputation_stamps: one row per (user, provider) stamp.
 -- Scores are summed to determine L2 eligibility.
 -- Providers: 'phone', 'instagram', 'facebook', 'twitter', 'linkedin'
@@ -29,7 +30,6 @@ CREATE TABLE phone_otps (
     PRIMARY KEY (user_id, phone)
 );
 
----- create above / drop below ----
-
+-- +goose Down
 DROP TABLE IF EXISTS phone_otps;
 DROP TABLE IF EXISTS reputation_stamps;

@@ -12,14 +12,15 @@ import (
 
 // User represents a user as returned by the Auth service internal API.
 type User struct {
-	ID          string  `json:"id"`
-	DID         string  `json:"did"`
-	Username    string  `json:"username"`
-	DisplayName *string `json:"displayName"`
-	Email       *string `json:"email"`
-	TrustLevel  int32   `json:"trustLevel"`
-	APEnabled   bool    `json:"apEnabled"`
-	CreatedAt   string  `json:"createdAt"`
+	ID            string  `json:"id"`
+	DID           string  `json:"did"`
+	Username      string  `json:"username"`
+	DisplayName   *string `json:"displayName"`
+	Email         *string `json:"email"`
+	EmailVerified bool    `json:"emailVerified"`
+	TrustLevel    int32   `json:"trustLevel"`
+	APEnabled     bool    `json:"apEnabled"`
+	CreatedAt     string  `json:"createdAt"`
 }
 
 // AuthGQLPayload represents an auth payload from Auth service GraphQL.

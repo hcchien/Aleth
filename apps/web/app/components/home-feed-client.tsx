@@ -5,7 +5,9 @@ import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { useAuth } from "@/lib/auth-context";
 import { gqlClient } from "@/lib/gql-client";
+import Image from "next/image";
 import { ReactBar } from "./react-bar";
+import { ComposeBox } from "./compose-box";
 import type { SignatureInfo } from "./signature-badge";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -27,6 +29,7 @@ interface ResharedPost {
 export interface PostItem {
   id: string;
   content: string;
+  imageUrls: string[];
   replyCount: number;
   likeCount: number;
   viewerEmotion?: string | null;
@@ -70,7 +73,7 @@ interface FeedConnection {
 // ─── GraphQL queries ──────────────────────────────────────────────────────────
 
 const POST_FIELDS = `
-  id content replyCount likeCount viewerEmotion
+  id content imageUrls replyCount likeCount viewerEmotion
   reactionCounts { emotion count }
   createdAt resharedFromId
   resharedFrom { id content createdAt author { id username displayName trustLevel } }
@@ -131,20 +134,16 @@ function avatarColor(username: string): string {
   return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
 }
 
-function LevelBadge({ level }: { level: number }) {
-  const icon = level >= 4 ? "♛" : "⬡";
-  const cls =
-    level >= 4
-      ? "border-amber-400/40 bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300"
-      : level >= 3
-      ? "border-orange-400/40 bg-orange-50 text-orange-700 dark:bg-orange-500/15 dark:text-orange-300"
-      : level >= 2
-      ? "border-lime-400/40 bg-lime-50 text-lime-700 dark:bg-lime-500/15 dark:text-lime-300"
-      : "border-sky-400/40 bg-sky-50 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300";
+// ─── VerifiedBadge ────────────────────────────────────────────────────────────
+
+function VerifiedBadge({ level }: { level: number }) {
+  if (level < 2) return null;
   return (
-    <span className={`inline-flex items-center gap-0.5 rounded-full border px-2 py-0.5 text-xs font-medium ${cls}`}>
-      <span className="text-[0.6rem] leading-none">{icon}</span>
-      <span>L{level}</span>
+    <span className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-tighter bg-[var(--app-verified-bg)] text-[var(--app-verified)] border border-[var(--app-verified-border)]">
+      <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
+      </svg>
+      Verified Identity
     </span>
   );
 }
@@ -175,6 +174,83 @@ interface RemotePostConnection {
   hasMore: boolean;
 }
 
+// ─── NetworkSidebar ───────────────────────────────────────────────────────────
+
+export function NetworkSidebar({ userTrustLevel = 0 }: { userTrustLevel?: number }) {
+  // Identity completeness: rough estimate based on trust level
+  const identityPct = Math.min(100, userTrustLevel * 25);
+
+  const trendingTags = [
+    "#DecentralizedEnergy",
+    "#LedgerSafety",
+    "#GlobalLiquidity",
+    "#VerifiedSources",
+    "#ChainGovernance",
+  ];
+
+  return (
+    <aside className="w-[240px] shrink-0 space-y-4">
+      {/* Elevate Your Trust card */}
+      <div className="rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] p-4">
+        <h3 className="mb-1 text-sm font-bold text-[var(--app-text-heading)]">Elevate Your Trust</h3>
+        <p className="mb-3 text-xs text-[var(--app-text-secondary)]">
+          Complete identity certification to unlock full network access.
+        </p>
+        {/* Progress bar */}
+        <div className="mb-1 flex items-center justify-between text-[10px] font-semibold uppercase tracking-wide text-[var(--app-text-muted)]">
+          <span>Identity Completeness</span>
+          <span>{identityPct}%</span>
+        </div>
+        <div className="mb-4 h-1.5 w-full rounded-full bg-[var(--app-surface-2)]">
+          <div
+            className="h-1.5 rounded-full bg-[var(--app-accent)] transition-all"
+            style={{ width: `${identityPct}%` }}
+          />
+        </div>
+        <Link href="/settings" className="btn-primary w-full justify-center text-xs">
+          Certify Identity
+        </Link>
+      </div>
+
+      {/* Network stats */}
+      <div className="rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] p-4 space-y-3">
+        <h3 className="text-xs font-bold uppercase tracking-widest text-[var(--app-text-muted)]">Network Health</h3>
+        {/* Metric: health */}
+        <div className="border-l-[3px] border-[var(--app-verified)] pl-3">
+          <div className="text-lg font-bold text-[var(--app-text-heading)]">99.98%</div>
+          <div className="text-[11px] text-[var(--app-text-secondary)]">Nominal performance</div>
+        </div>
+        {/* Metric: validators */}
+        <div className="border-l-[3px] border-[var(--app-accent)] pl-3">
+          <div className="text-lg font-bold text-[var(--app-text-heading)]">14,202</div>
+          <div className="text-[11px] text-[var(--app-text-secondary)]">Active Validators</div>
+        </div>
+      </div>
+
+      {/* Trending intelligence */}
+      <div className="rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] p-4">
+        <h3 className="mb-3 text-xs font-bold uppercase tracking-widest text-[var(--app-text-muted)]">Trending Intelligence</h3>
+        <div className="flex flex-wrap gap-1.5">
+          {trendingTags.map((tag) => (
+            <span key={tag} className="badge-protocol cursor-pointer hover:opacity-80 transition-opacity">
+              {tag}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      {/* Footer links */}
+      <div className="flex flex-wrap gap-x-3 gap-y-1 px-1 text-[10px] text-[var(--app-text-muted)]">
+        {["API", "NODES", "SECURITY", "TRANSPARENCY"].map((item) => (
+          <a key={item} href="#" className="hover:text-[var(--app-text-secondary)] transition-colors">
+            {item}
+          </a>
+        ))}
+      </div>
+    </aside>
+  );
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 interface HomeFeedClientProps {
@@ -197,21 +273,18 @@ export function HomeFeedClient({ initialItems, initialCursor, initialHasMore }: 
   const [remoteBefore, setRemoteBefore] = useState<string | null>(null);
   const [remoteLoading, setRemoteLoading] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState(false);
   const fetchedForUserRef = useRef<string | undefined>(undefined);
 
   // Once auth resolves, fetch personalized feed if logged in.
-  // Re-runs if the user logs in after the page was already loaded as a guest.
   useEffect(() => {
     if (authLoading) return;
-    if (!user) return; // guest: keep SSR explore feed
-    if (fetchedForUserRef.current === user.id) return; // already fetched for this user
+    if (!user) return;
+    if (fetchedForUserRef.current === user.id) return;
     fetchedForUserRef.current = user.id;
 
     gqlClient<{ feed: FeedConnection }>(PERSONALIZED_FEED_QUERY, { limit: 20 })
       .then((data) => {
-        // Only switch to personalized feed if the service returned content.
-        // An empty result with hasMore=false means the feed service is down or
-        // unreachable (gateway degrades silently); keep the SSR explore items.
         if (data.feed.items.length > 0 || data.feed.hasMore) {
           setItems(data.feed.items);
           setCursor(data.feed.nextCursor);
@@ -255,6 +328,7 @@ export function HomeFeedClient({ initialItems, initialCursor, initialHasMore }: 
   async function loadMore() {
     if (loading || !hasMore) return;
     setLoading(true);
+    setLoadError(false);
     try {
       if (feedType === "personalized") {
         const data = await gqlClient<{ feed: FeedConnection }>(
@@ -275,19 +349,13 @@ export function HomeFeedClient({ initialItems, initialCursor, initialHasMore }: 
       }
     } catch (err) {
       console.error("Failed to load more:", err);
+      setLoadError(true);
     } finally {
       setLoading(false);
     }
   }
 
   const headingText = feedType === "personalized" ? t("myFeed") : t("allFeed");
-  const composeText =
-    user
-      ? user.trustLevel >= 1
-        ? t("composeNewPost")
-        : t("composeUpgrade")
-      : t("composeSignIn");
-
   const showFediverseTab = !authLoading && !!user?.apEnabled;
 
   function handleFediverseTab() {
@@ -299,12 +367,30 @@ export function HomeFeedClient({ initialItems, initialCursor, initialHasMore }: 
 
   return (
     <>
-      <h1
-        className="mb-4 text-3xl font-bold text-[var(--app-text-heading)]"
-        style={{ fontFamily: "var(--font-playfair), 'Playfair Display', Georgia, serif", letterSpacing: "-0.02em" }}
-      >
-        {activeTab === "fediverse" ? "Fediverse" : headingText}
-      </h1>
+      {/* Feed heading */}
+      <div className="mb-12 flex justify-between items-end">
+        <div>
+          <h1 className="font-headline text-4xl font-extrabold text-[var(--app-text-heading)] tracking-tight leading-none mb-2">
+            {activeTab === "fediverse" ? "Fediverse" : "Network Feed"}
+          </h1>
+          <p className="text-[var(--app-text-muted)] max-w-md text-sm">
+            {activeTab === "fediverse"
+              ? "Posts from the fediverse"
+              : "Access real-time intelligence verified through decentralized consensus."}
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            className="p-3 bg-[var(--app-surface-2)] rounded-lg text-[var(--app-accent)] flex items-center gap-2 hover:bg-[var(--app-surface-4)] transition-all"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden="true">
+              <path d="M3 6h18M7 12h10M11 18h2" strokeLinecap="round" />
+            </svg>
+            <span className="text-[10px] font-bold uppercase tracking-widest">Filter</span>
+          </button>
+        </div>
+      </div>
 
       {showFediverseTab && (
         <div className="mb-5 flex gap-1 border-b border-[var(--app-border)]">
@@ -335,23 +421,30 @@ export function HomeFeedClient({ initialItems, initialCursor, initialHasMore }: 
 
       {activeTab === "local" && (
         <>
-          <Link href="/compose" className="compose-bar mb-8">
-            {composeText}
-          </Link>
+          <ComposeBox />
 
           {items.length === 0 && !authLoading ? (
-            <div className="rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] px-6 py-10 text-center text-sm text-[var(--app-text-secondary)]">
+            <div className="rounded-2xl border border-[var(--app-border)] bg-[var(--app-surface-3)] px-6 py-10 text-center text-sm text-[var(--app-text-secondary)]">
               {feedType === "personalized" ? t("emptyPersonalized") : t("emptyExplore")}
             </div>
           ) : (
-            <div className="divide-y divide-[var(--app-border)]">
+            <div className="space-y-16">
               {items.map((item) => (
                 <FeedCard key={item.id} item={item} />
               ))}
             </div>
           )}
 
-          {hasMore && (
+          {loadError && (
+            <div className="py-4 text-center">
+              <p className="mb-2 text-sm text-[var(--app-text-muted)]">Failed to load posts.</p>
+              <button onClick={loadMore} className="text-sm text-[var(--app-accent)] hover:underline">
+                Retry
+              </button>
+            </div>
+          )}
+
+          {hasMore && !loadError && (
             <div className="py-6 text-center">
               <button
                 onClick={loadMore}
@@ -387,7 +480,7 @@ export function HomeFeedClient({ initialItems, initialCursor, initialHasMore }: 
           )}
 
           {remotePosts.length > 0 && (
-            <div className="divide-y divide-[var(--app-border)]">
+            <div className="space-y-16">
               {remotePosts.map((post) => (
                 <RemotePostCard key={post.id} post={post} />
               ))}
@@ -417,13 +510,12 @@ function RemotePostCard({ post }: { post: RemotePostItem }) {
   const initial = post.handle.replace(/^@/, "").charAt(0).toUpperCase();
   const color = avatarColor(post.handle);
   const date = formatDate(post.publishedAt);
-  // Strip basic HTML tags from AP Note content for display
   const plainContent = post.content.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
 
   return (
-    <div className="py-5">
+    <div className="post-card border-b border-[var(--app-border)] last:border-b-0">
       <div className="mb-2 flex items-center gap-2">
-        <span className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-semibold ${color}`}>
+        <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm font-semibold ${color}`}>
           {initial}
         </span>
         <div className="min-w-0">
@@ -451,13 +543,11 @@ function RemotePostCard({ post }: { post: RemotePostItem }) {
 }
 
 // ─── SignatureMark ────────────────────────────────────────────────────────────
-// Shows a trust-level-colored checkmark when content is signed+verified,
-// or a neutral warning when signed but not verified.
 
 function signatureColor(trustLevel: number): string {
-  if (trustLevel >= 3) return "text-amber-400";   // gold
-  if (trustLevel === 2) return "text-lime-400";   // green
-  return "text-sky-400";                           // blue (L0, L1)
+  if (trustLevel >= 3) return "text-amber-400";
+  if (trustLevel === 2) return "text-[var(--app-verified)]";
+  return "text-[var(--app-accent)]";
 }
 
 function SignatureMark({
@@ -494,7 +584,6 @@ function FeedCard({ item }: { item: FeedItem }) {
   if (!author) return null;
 
   const name = author.displayName ?? author.username;
-  const trust = Math.max(1, author.trustLevel);
   const isReshare = !!(item.post?.resharedFrom);
   const resharedFrom = item.post?.resharedFrom ?? null;
   const resharedOriginalName = resharedFrom
@@ -519,105 +608,159 @@ function FeedCard({ item }: { item: FeedItem }) {
   const replies = item.post?.replyCount ?? 0;
   const signatureInfo = item.article?.signatureInfo ?? item.post?.signatureInfo;
   const avatarCls = avatarColor(author.username);
-
+  const boardName = item.article?.board.name;
   const reactionCounts = item.post?.reactionCounts ?? [];
 
   return (
-    <article className="py-6">
-      {/* Meta row */}
-      <div className="mb-3 flex items-center gap-2 text-sm">
-        <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold ${avatarCls}`}>
-          {name.slice(0, 1).toUpperCase()}
-        </span>
-        <Link href={`/@${author.username}`} className="font-semibold text-[var(--app-text-bright)] hover:text-[var(--app-text-heading)]">
-          {name}
-        </Link>
-        <LevelBadge level={trust} />
-        <span className="text-[var(--app-text-dim)]">·</span>
-        <span className="text-[var(--app-text-muted)]">{formatDate(publishedAt)}</span>
-        {signatureInfo?.isSigned && (
-          <SignatureMark
-            isVerified={signatureInfo.isVerified}
-            trustLevel={author.trustLevel}
-            explanation={signatureInfo.explanation}
-          />
-        )}
+    <article className="relative group post-card">
+      {/* Timeline connector line — runs down to the next post */}
+      <div
+        className="absolute hidden md:block w-px bg-[var(--app-border-inner)] rounded-full"
+        style={{ left: "27px", top: "72px", bottom: "-4rem" }}
+        aria-hidden="true"
+      >
+        <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-[var(--app-secondary)]" />
       </div>
 
-      {/* Title */}
-      <h2
-        className="mb-1.5 text-xl font-bold leading-snug text-[var(--app-text-heading)]"
-        style={{ fontFamily: "var(--font-playfair), 'Playfair Display', Georgia, serif", letterSpacing: "-0.015em", textWrap: "balance" as const }}
-      >
-        {detailHref ? (
-          <Link href={detailHref} className="hover:text-[var(--app-accent)] transition-colors">
-            {title}
-          </Link>
-        ) : (
-          title
-        )}
-      </h2>
-
-      {/* Content preview */}
-      {content && (
-        detailHref ? (
-          <Link href={detailHref} className="block hover:opacity-90">
-            <p className="mb-4 text-sm leading-relaxed text-[var(--app-text-secondary)]">{content}</p>
-          </Link>
-        ) : (
-          <p className="mb-4 text-sm leading-relaxed text-[var(--app-text-secondary)]">{content}</p>
-        )
-      )}
-
-      {/* Embedded reshared post */}
-      {isReshare && resharedFrom && (
-        <div className="mb-3 rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] px-4 py-3">
-          <div className="mb-1 flex items-center gap-1.5 text-xs text-[var(--app-text-muted)]">
-            <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold ${avatarColor(resharedFrom.author.username)}`}>
-              {resharedOriginalName!.slice(0, 1).toUpperCase()}
-            </span>
-            <Link href={`/@${resharedFrom.author.username}`} className="font-medium text-[var(--app-text-secondary)] hover:text-[var(--app-text-heading)]">
-              {resharedOriginalName}
-            </Link>
-            <span>·</span>
-            <span>{formatDate(resharedFrom.createdAt)}</span>
-          </div>
-          <p className="text-sm leading-relaxed text-[var(--app-text-secondary)]">
-            {textPreview(resharedFrom.content, 200)}
-          </p>
-        </div>
-      )}
-
-      {/* Reaction + action bar */}
-      {item.post ? (
-        <ReactBar
-          postId={item.post.id}
-          initialViewerEmotion={item.post.viewerEmotion}
-          initialReactionCounts={reactionCounts}
-          replyCount={replies}
-          replyHref={`/posts/${item.post.id}`}
-          postPreview={{ content: item.post.content, authorName: name }}
-        />
-      ) : (
-        <div className="flex divide-x divide-[var(--app-border)] border-t border-[var(--app-border)]">
-          {detailHref && (
-            <Link
-              href={detailHref}
-              className="flex flex-1 items-center justify-center gap-1.5 py-2.5 text-sm font-medium text-[var(--app-text-muted)] transition-colors hover:bg-[var(--app-hover-2)] hover:text-[var(--app-text-secondary)]"
-            >
-              <span>💬</span>
-              <span>{t("comment")}</span>
-            </Link>
-          )}
-          <button
-            type="button"
-            className="flex flex-1 items-center justify-center gap-1.5 py-2.5 text-sm font-medium text-[var(--app-text-muted)] transition-colors hover:bg-[var(--app-hover-2)] hover:text-[var(--app-text-secondary)]"
+      <div className="flex gap-3 sm:gap-6">
+        {/* Square rounded avatar */}
+        <div className="flex-shrink-0">
+          <span
+            className={`flex h-10 w-10 sm:h-14 sm:w-14 items-center justify-center rounded-xl text-base sm:text-xl font-bold transition-all duration-500 grayscale opacity-70 group-hover:grayscale-0 group-hover:opacity-100 ${avatarCls}`}
           >
-            <span>↗</span>
-            <span>{t("share")}</span>
-          </button>
+            {name.slice(0, 1).toUpperCase()}
+          </span>
         </div>
-      )}
+
+        <div className="flex-1 min-w-0">
+          {/* Meta row */}
+          <div className="flex flex-wrap items-center gap-2 mb-2">
+            <Link href={`/@${author.username}`} className="font-bold text-[var(--app-text-heading)] text-sm hover:text-[var(--app-accent)] transition-colors">
+              {name}
+            </Link>
+            <VerifiedBadge level={author.trustLevel} />
+            {signatureInfo?.isSigned && (
+              <SignatureMark
+                isVerified={signatureInfo.isVerified}
+                trustLevel={author.trustLevel}
+                explanation={signatureInfo.explanation}
+              />
+            )}
+            <span className="text-[var(--app-text-dim)] text-[11px]">
+              · {formatDate(publishedAt)}
+              {boardName && (
+                <> in <span className="text-[var(--app-accent)] hover:underline cursor-pointer">{boardName}</span></>
+              )}
+            </span>
+          </div>
+
+          {/* Title: Newsreader serif headline */}
+          <h2
+            className="font-headline text-2xl font-bold text-[var(--app-text-heading)] mb-3 leading-tight group-hover:text-[var(--app-accent)] transition-colors"
+            style={{ textWrap: "balance" as const }}
+          >
+            {detailHref ? (
+              <Link href={detailHref}>{title}</Link>
+            ) : (
+              title
+            )}
+          </h2>
+
+          {/* Content preview */}
+          {content && (
+            <p className="text-[var(--app-text-secondary)] leading-relaxed text-sm mb-4 max-w-2xl">
+              {content}
+            </p>
+          )}
+
+          {/* Image grid */}
+          {item.post?.imageUrls && item.post.imageUrls.length > 0 && (
+            <div
+              className={`mb-4 grid gap-1.5 overflow-hidden rounded-xl ${
+                item.post.imageUrls.length === 1
+                  ? "grid-cols-1"
+                  : item.post.imageUrls.length === 2
+                  ? "grid-cols-2"
+                  : item.post.imageUrls.length === 3
+                  ? "grid-cols-2"
+                  : "grid-cols-2"
+              }`}
+            >
+              {item.post.imageUrls.map((url, i) => {
+                const isLarge = item.post!.imageUrls.length === 3 && i === 0;
+                return (
+                  <div
+                    key={url}
+                    className={`relative overflow-hidden bg-[var(--app-surface-4)] rounded-lg ${isLarge ? "row-span-2" : ""}`}
+                    style={{ aspectRatio: item.post!.imageUrls.length === 1 ? "16/9" : "1" }}
+                  >
+                    <Image
+                      src={url}
+                      alt={`Image ${i + 1}`}
+                      fill
+                      className="object-cover hover:scale-105 transition-transform duration-300"
+                      unoptimized
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Embedded reshared post */}
+          {isReshare && resharedFrom && (
+            <div className="mb-4 bg-[var(--app-surface-3)] p-4 rounded-xl border-l-4 border-[var(--app-secondary-border)]">
+              <div className="mb-1 flex items-center gap-1.5 text-xs text-[var(--app-text-muted)]">
+                <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded text-[10px] font-semibold ${avatarColor(resharedFrom.author.username)}`}>
+                  {resharedOriginalName!.slice(0, 1).toUpperCase()}
+                </span>
+                <Link href={`/@${resharedFrom.author.username}`} className="font-medium text-[var(--app-text-secondary)] hover:text-[var(--app-text-heading)]">
+                  {resharedOriginalName}
+                </Link>
+                <span>·</span>
+                <span>{formatDate(resharedFrom.createdAt)}</span>
+              </div>
+              <p className="text-sm leading-relaxed text-[var(--app-text-secondary)]">
+                {textPreview(resharedFrom.content, 200)}
+              </p>
+            </div>
+          )}
+
+          {/* Action bar */}
+          {item.post ? (
+            <ReactBar
+              postId={item.post.id}
+              initialViewerEmotion={item.post.viewerEmotion}
+              initialReactionCounts={reactionCounts}
+              replyCount={replies}
+              replyHref={`/posts/${item.post.id}`}
+              postPreview={{ content: item.post.content, authorName: name }}
+            />
+          ) : (
+            <div className="flex items-center gap-6">
+              {detailHref && (
+                <Link
+                  href={detailHref}
+                  className="flex items-center gap-1.5 text-[var(--app-text-muted)] hover:text-[var(--app-accent)] transition-colors"
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+                    <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  <span className="text-[10px] font-bold tracking-wider uppercase">{t("comment")}</span>
+                </Link>
+              )}
+              <button
+                type="button"
+                className="flex items-center gap-1.5 text-[var(--app-text-muted)] hover:text-[var(--app-text-heading)] transition-colors ml-auto"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+                  <path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8M16 6l-4-4-4 4M12 2v13" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
     </article>
   );
 }

@@ -9,6 +9,7 @@ type User {
   username: String!
   displayName: String
   email: String
+  emailVerified: Boolean!
   trustLevel: Int!
   # apEnabled controls whether this user's profile is discoverable via ActivityPub.
   apEnabled: Boolean!
@@ -69,6 +70,7 @@ type Post {
   noteTitle: String
   noteCover: String
   noteSummary: String
+  imageUrls: [String!]!
   resharedFromId: ID
   resharedFrom: Post
   replyCount: Int!
@@ -82,7 +84,7 @@ type Post {
 
 type Series {
   id: ID!
-  boardId: ID!
+  boardId: ID
   title: String!
   description: String
   articleCount: Int!
@@ -92,7 +94,8 @@ type Series {
 }
 
 input CreateSeriesInput {
-  boardId: ID!
+  boardId: ID
+  pageId: ID
   title: String!
   description: String
 }
@@ -193,6 +196,7 @@ type ArticleConnection {
 
 input CreatePostInput {
   content: String!
+  imageUrls: [String!]
 }
 
 input CreateNoteInput {
@@ -339,6 +343,8 @@ type Query {
   followStats(userID: ID!): FollowStats!
   # Returns the authenticated viewer's L2 reputation status.
   myReputation: ReputationStatus!
+  # Returns the distinct credential types for the current user (e.g. ["passkey", "google"]).
+  myCredentialTypes: [String!]!
 
   # Content
   post(id: ID!): Post
@@ -361,6 +367,7 @@ type Query {
   # Series
   series(id: ID!): Series
   boardSeries(boardId: ID!): [Series!]!
+  pageSeries(pageId: ID!): [Series!]!
 
   # VC registry
   availableVcTypes: [VcTypeInfo!]!
@@ -442,6 +449,9 @@ type Mutation {
   # Phone-based L2 reputation
   requestPhoneOTP(phone: String!): Boolean!
   verifyPhoneOTP(phone: String!, code: String!): AuthPayload!
+  # Social OAuth reputation stamps (Twitter/X, Facebook, Instagram, LinkedIn)
+  # Returns the provider's authorization URL; client should redirect the user there.
+  startSocialVerification(provider: String!): String!
   # ActivityPub federation opt-in/out
   setActivityPubEnabled(enabled: Boolean!): Boolean!
   # Fediverse — follow / unfollow a remote AP actor (e.g. @user@threads.net)
@@ -487,6 +497,27 @@ type Mutation {
   # VC registry management
   registerVcType(input: RegisterVcTypeInput!): VcTypeInfo!
   disableVcType(vcType: String!, issuer: String!): Boolean!
+
+  # Moderator/admin delete — caller must have trust_level >= 5.
+  adminDeletePost(id: ID!): Boolean!
+
+  # Content reporting — reason must be one of:
+  # spam | harassment | hate_speech | misinformation | illegal_content | other
+  reportPost(postId: ID!, reason: String!, note: String): Boolean!
+
+  # Password reset
+  requestPasswordReset(email: String!): Boolean!
+  resetPassword(token: String!, newPassword: String!): Boolean!
+
+  # Disconnect a social OAuth login method ("google" | "facebook").
+  disconnectOAuth(provider: String!): Boolean!
+  # Permanently deletes the authenticated user's account and anonymises their PII.
+  # All active sessions are revoked immediately. This action is irreversible.
+  deleteAccount: Boolean!
+
+  # Email verification
+  verifyEmail(token: String!): Boolean!
+  resendVerificationEmail: Boolean!
 
   # Notifications
   # Pass specific ids to mark those notifications as read; omit ids to mark all.

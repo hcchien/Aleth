@@ -4,6 +4,7 @@ import createNextIntlPlugin from "next-intl/plugin";
 const withNextIntl = createNextIntlPlugin("./i18n/request.ts");
 
 const nextConfig: NextConfig = {
+  output: "standalone",
   async rewrites() {
     const gatewayUrl = process.env.GATEWAY_URL || "http://localhost:4000";
     const notificationUrl = process.env.NOTIFICATION_URL || "http://localhost:8084";

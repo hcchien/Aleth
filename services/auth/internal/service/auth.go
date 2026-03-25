@@ -2,12 +2,17 @@ package service
 
 import (
 	"context"
+	"bytes"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"net/smtp"
 	"regexp"
 	"strings"
 	"time"
@@ -15,10 +20,28 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/rs/zerolog/log"
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/aleth/auth/internal/db"
+	"github.com/aleth/auth/internal/limiter"
+	cbor "github.com/fxamacker/cbor/v2"
+	"github.com/go-webauthn/webauthn/protocol/webauthncose"
 )
+
+// OAuthConfig holds credentials for social OAuth reputation providers.
+type OAuthConfig struct {
+	TwitterClientID      string
+	TwitterClientSecret  string
+	FacebookClientID     string // App ID (same as FacebookApp for server-side flow)
+	FacebookClientSecret string
+	InstagramClientID    string
+	InstagramClientSecret string
+	LinkedInClientID     string
+	LinkedInClientSecret string
+	CallbackBase         string // Base URL of this auth service (e.g. "http://localhost:8081")
+	FrontendURL          string // Next.js app URL (e.g. "http://localhost:3000")
+}
 
 // AuthService provides authentication business logic.
 type AuthService struct {
@@ -26,8 +49,27 @@ type AuthService struct {
 	tokens       *TokenService
 	googleClient string
 	facebookApp  string
-	passkeyRPID  string
+	passkeyRPID    string
+	passkeyRPOrigin string
 	httpClient   *http.Client
+	oauthCfg     OAuthConfig
+	limiter      limiter.Limiter
+
+	smtpHost     string
+	smtpPort     int
+	smtpUser     string
+	smtpPassword string
+	smtpFrom     string
+}
+
+// SetOAuthConfig wires in the social OAuth credentials.
+func (s *AuthService) SetOAuthConfig(cfg OAuthConfig) {
+	s.oauthCfg = cfg
+}
+
+// FrontendURL returns the configured frontend base URL (used by callback handlers).
+func (s *AuthService) FrontendURL() string {
+	return s.oauthCfg.FrontendURL
 }
 
 type authStore interface {
@@ -69,6 +111,37 @@ type authStore interface {
 	VerifyPhoneOTP(ctx context.Context, userID uuid.UUID, phone, code string) (bool, error)
 	// ActivityPub toggle
 	SetAPEnabled(ctx context.Context, userID uuid.UUID, enabled bool) (db.User, error)
+	// OAuth states (social reputation flows)
+	UpsertOAuthState(ctx context.Context, params db.UpsertOAuthStateParams) error
+	GetOAuthState(ctx context.Context, nonce string) (db.OAuthState, error)
+	DeleteOAuthState(ctx context.Context, nonce string) error
+	// Password reset tokens
+	CreatePasswordResetToken(ctx context.Context, userID uuid.UUID, tokenHash string, expiresAt time.Time) error
+	GetPasswordResetToken(ctx context.Context, tokenHash string) (*db.PasswordResetToken, error)
+	DeletePasswordResetToken(ctx context.Context, tokenHash string) error
+	UpdatePasswordCredential(ctx context.Context, userID uuid.UUID, newHash []byte) error
+	// OAuth disconnection
+	ListCredentialTypes(ctx context.Context, userID uuid.UUID) ([]string, error)
+	DeleteCredentialByType(ctx context.Context, userID uuid.UUID, credType string) error
+	// Email verification
+	CreateEmailVerificationToken(ctx context.Context, userID uuid.UUID, tokenHash string, expiresAt time.Time) error
+	GetEmailVerificationToken(ctx context.Context, tokenHash string) (*db.EmailVerificationToken, error)
+	DeleteEmailVerificationToken(ctx context.Context, tokenHash string) error
+	DeleteEmailVerificationTokensByUser(ctx context.Context, userID uuid.UUID) error
+	MarkEmailVerified(ctx context.Context, userID uuid.UUID) error
+	// Passkey sign count
+	UpdatePasskeySignCount(ctx context.Context, credentialID string, signCount uint32) error
+	// Account deletion
+	SoftDeleteUser(ctx context.Context, userID uuid.UUID) error
+}
+
+// SetSMTPConfig wires in the SMTP credentials for transactional email.
+func (s *AuthService) SetSMTPConfig(host string, port int, user, password, from string) {
+	s.smtpHost = host
+	s.smtpPort = port
+	s.smtpUser = user
+	s.smtpPassword = password
+	s.smtpFrom = from
 }
 
 func (s *AuthService) SetFacebookAppID(appID string) {
@@ -83,6 +156,14 @@ func (s *AuthService) SetPasskeyRPID(rpID string) {
 	s.passkeyRPID = rpID
 }
 
+func (s *AuthService) SetPasskeyRPOrigin(origin string) {
+	origin = strings.TrimSpace(origin)
+	if origin == "" {
+		origin = "http://localhost:3000"
+	}
+	s.passkeyRPOrigin = origin
+}
+
 func NewAuthService(store authStore, tokens *TokenService, googleClientID string) *AuthService {
 	return &AuthService{
 		db:           store,
@@ -90,7 +171,13 @@ func NewAuthService(store authStore, tokens *TokenService, googleClientID string
 		googleClient: googleClientID,
 		passkeyRPID:  "localhost",
 		httpClient:   &http.Client{Timeout: 10 * time.Second},
+		limiter:      limiter.New(context.Background(), ""), // nop by default
 	}
+}
+
+// SetLimiter wires in an optional Redis-backed login attempt limiter.
+func (s *AuthService) SetLimiter(l limiter.Limiter) {
+	s.limiter = l
 }
 
 // AuthResult holds the token pair and user returned after a successful auth operation.
@@ -108,8 +195,23 @@ func (s *AuthService) Register(ctx context.Context, username, email, password st
 	if username == "" || email == "" || password == "" {
 		return nil, fmt.Errorf("username, email and password are required")
 	}
+	if !isValidEmail(email) {
+		return nil, fmt.Errorf("invalid email address")
+	}
+	if err := validateUsername(username); err != nil {
+		return nil, err
+	}
 	if len(password) < 8 {
 		return nil, fmt.Errorf("password must be at least 8 characters")
+	}
+	if len(password) > 72 {
+		return nil, fmt.Errorf("password must be 72 characters or fewer")
+	}
+
+	if blocked, err := s.limiter.CheckAndIncrement(ctx, "reg:"+email, 5, time.Hour); err != nil {
+		log.Warn().Err(err).Msg("registration rate limiter error")
+	} else if blocked {
+		return nil, fmt.Errorf("too many registration attempts for this email — try again later")
 	}
 
 	exists, err := s.db.ExistsEmail(ctx, email)
@@ -151,16 +253,34 @@ func (s *AuthService) Register(ctx context.Context, username, email, password st
 		return nil, fmt.Errorf("store credential: %w", err)
 	}
 
+	// Send verification email — non-fatal; user can resend later.
+	if sendErr := s.sendVerificationEmail(ctx, user.ID, email); sendErr != nil {
+		log.Warn().Err(sendErr).Str("userID", user.ID.String()).Msg("failed to send verification email on register")
+	}
+
 	return s.issueTokens(ctx, user, 0)
 }
 
 // Login authenticates a user with email and password.
+// After 10 consecutive failures the account is locked for 15 minutes to
+// prevent brute-force and credential-stuffing attacks.
 func (s *AuthService) Login(ctx context.Context, email, password string) (*AuthResult, error) {
 	email = strings.ToLower(strings.TrimSpace(email))
+
+	// Check per-account lockout before any DB work.
+	locked, err := s.limiter.IsLocked(ctx, email)
+	if err != nil {
+		log.Warn().Err(err).Str("email", email).Msg("limiter check error — allowing login")
+	} else if locked {
+		return nil, fmt.Errorf("too many failed attempts — try again in 15 minutes")
+	}
 
 	user, err := s.db.GetUserByEmail(ctx, email)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
+			// Record failure even for unknown emails (prevents user enumeration
+			// timing differences from revealing account existence).
+			_ = s.limiter.RecordFailure(ctx, email)
 			return nil, fmt.Errorf("invalid credentials")
 		}
 		return nil, fmt.Errorf("get user: %w", err)
@@ -172,15 +292,19 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (*AuthR
 	cred, err := s.db.GetPasswordCredential(ctx, user.ID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
+			_ = s.limiter.RecordFailure(ctx, email)
 			return nil, fmt.Errorf("invalid credentials")
 		}
 		return nil, fmt.Errorf("get credential: %w", err)
 	}
 
 	if err := bcrypt.CompareHashAndPassword(cred.CredentialData, []byte(password)); err != nil {
+		_ = s.limiter.RecordFailure(ctx, email)
 		return nil, fmt.Errorf("invalid credentials")
 	}
 
+	// Successful login — clear the failure counter.
+	_ = s.limiter.Reset(ctx, email)
 	return s.issueTokens(ctx, user, 0)
 }
 
@@ -454,6 +578,50 @@ func (s *AuthService) FollowStats(ctx context.Context, viewerID *uuid.UUID, user
 	}, nil
 }
 
+// extractCOSEKey extracts the raw COSE public key bytes from either:
+//  1. A CBOR-encoded WebAuthn attestation object {fmt, attStmt, authData} (sent by the browser)
+//  2. A raw COSE key (already in the correct format)
+//
+// Returns the COSE key as base64url (no padding).
+func extractCOSEKey(attestationOrCOSEBase64 string) (string, error) {
+	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(attestationOrCOSEBase64, "="))
+	if err != nil {
+		return "", fmt.Errorf("decode base64: %w", err)
+	}
+
+	// Try to parse as a WebAuthn attestation object first.
+	var attObj struct {
+		AuthData []byte `cbor:"authData"`
+	}
+	if err := cbor.Unmarshal(raw, &attObj); err == nil && len(attObj.AuthData) > 55 {
+		// authData layout:
+		//   [0:32]  RP ID hash
+		//   [32]    flags
+		//   [33:37] sign count
+		//   [37:53] AAGUID (16 bytes)
+		//   [53:55] credential ID length (big-endian uint16)
+		//   [55:55+L] credential ID
+		//   [55+L:] COSE public key
+		credIDLen := int(binary.BigEndian.Uint16(attObj.AuthData[53:55]))
+		coseStart := 55 + credIDLen
+		if len(attObj.AuthData) <= coseStart {
+			return "", fmt.Errorf("authData too short to contain COSE key")
+		}
+		coseBytes := attObj.AuthData[coseStart:]
+		// Validate it parses as a real COSE key.
+		if _, err := webauthncose.ParsePublicKey(coseBytes); err != nil {
+			return "", fmt.Errorf("invalid COSE key in authData: %w", err)
+		}
+		return base64.RawURLEncoding.EncodeToString(coseBytes), nil
+	}
+
+	// Already a COSE key — validate and return as-is.
+	if _, err := webauthncose.ParsePublicKey(raw); err != nil {
+		return "", fmt.Errorf("not a valid COSE key or attestation object: %w", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(raw), nil
+}
+
 func (s *AuthService) RegisterPasskey(ctx context.Context, userID uuid.UUID, credentialID, credentialPublicKey string, signCount int32) (*AuthResult, error) {
 	credentialID = strings.TrimSpace(credentialID)
 	credentialPublicKey = strings.TrimSpace(credentialPublicKey)
@@ -461,8 +629,14 @@ func (s *AuthService) RegisterPasskey(ctx context.Context, userID uuid.UUID, cre
 		return nil, fmt.Errorf("credentialID and credentialPublicKey are required")
 	}
 
+	// The browser sends the full attestation object; extract just the COSE public key.
+	coseKey, err := extractCOSEKey(credentialPublicKey)
+	if err != nil {
+		return nil, fmt.Errorf("extract COSE key from attestation: %w", err)
+	}
+
 	credData, err := json.Marshal(map[string]any{
-		"credentialPublicKey": credentialPublicKey,
+		"credentialPublicKey": coseKey,
 		"signCount":           signCount,
 		"registeredAt":        time.Now().UTC().Format(time.RFC3339),
 	})
@@ -535,25 +709,28 @@ func (s *AuthService) FinishPasskeyLogin(ctx context.Context, assertion PasskeyA
 	if credID == "" || strings.TrimSpace(assertion.ChallengeToken) == "" || strings.TrimSpace(assertion.ClientDataJSON) == "" {
 		return nil, fmt.Errorf("credentialID, challengeToken and clientDataJSON are required")
 	}
-	if _, err := base64.RawURLEncoding.DecodeString(strings.TrimSpace(assertion.AuthenticatorData)); err != nil && strings.TrimSpace(assertion.AuthenticatorData) != "" {
-		return nil, fmt.Errorf("invalid authenticatorData encoding")
+	if strings.TrimSpace(assertion.AuthenticatorData) == "" {
+		return nil, fmt.Errorf("authenticatorData is required")
 	}
-	if _, err := base64.RawURLEncoding.DecodeString(strings.TrimSpace(assertion.Signature)); err != nil && strings.TrimSpace(assertion.Signature) != "" {
-		return nil, fmt.Errorf("invalid signature encoding")
+	if strings.TrimSpace(assertion.Signature) == "" {
+		return nil, fmt.Errorf("signature is required")
 	}
 
+	// ── 1. Validate challenge token ──────────────────────────────────────────
 	challengeClaims, err := s.tokens.ValidatePasskeyChallengeToken(assertion.ChallengeToken)
 	if err != nil {
 		return nil, fmt.Errorf("invalid challenge token: %w", err)
 	}
 
-	clientDataBytes, err := base64.RawURLEncoding.DecodeString(assertion.ClientDataJSON)
+	// ── 2. Decode and validate clientDataJSON ────────────────────────────────
+	clientDataBytes, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(strings.TrimSpace(assertion.ClientDataJSON), "="))
 	if err != nil {
 		return nil, fmt.Errorf("invalid clientDataJSON encoding")
 	}
 	var clientData struct {
 		Type      string `json:"type"`
 		Challenge string `json:"challenge"`
+		Origin    string `json:"origin"`
 	}
 	if err := json.Unmarshal(clientDataBytes, &clientData); err != nil {
 		return nil, fmt.Errorf("invalid clientDataJSON payload")
@@ -561,10 +738,54 @@ func (s *AuthService) FinishPasskeyLogin(ctx context.Context, assertion PasskeyA
 	if clientData.Type != "webauthn.get" {
 		return nil, fmt.Errorf("invalid assertion type")
 	}
-	if clientData.Challenge != challengeClaims.Challenge {
+
+	// Verify challenge matches the stored challenge.
+	browserChallengeBytes, decErr1 := base64.RawURLEncoding.DecodeString(strings.TrimRight(clientData.Challenge, "="))
+	expectedChallengeBytes, decErr2 := base64.RawURLEncoding.DecodeString(strings.TrimRight(challengeClaims.Challenge, "="))
+	if decErr1 != nil || decErr2 != nil || !bytes.Equal(browserChallengeBytes, expectedChallengeBytes) {
 		return nil, fmt.Errorf("challenge mismatch")
 	}
 
+	// Verify origin matches the configured RP origin.
+	if clientData.Origin != s.passkeyRPOrigin {
+		return nil, fmt.Errorf("origin mismatch")
+	}
+
+	// ── 3. Decode authenticatorData ──────────────────────────────────────────
+	authDataBytes, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(strings.TrimSpace(assertion.AuthenticatorData), "="))
+	if err != nil {
+		return nil, fmt.Errorf("invalid authenticatorData encoding")
+	}
+	if len(authDataBytes) < 37 {
+		return nil, fmt.Errorf("authenticatorData too short")
+	}
+
+	// ── 4. Verify RP ID hash (first 32 bytes) ───────────────────────────────
+	rpIDHash := authDataBytes[:32]
+	expectedRPIDHash := sha256.Sum256([]byte(s.passkeyRPID))
+	if !bytes.Equal(rpIDHash, expectedRPIDHash[:]) {
+		return nil, fmt.Errorf("RP ID hash mismatch")
+	}
+
+	// ── 5. Verify User Present flag (bit 0 of flags byte at index 32) ───────
+	flags := authDataBytes[32]
+	if flags&0x01 == 0 {
+		return nil, fmt.Errorf("user present flag not set")
+	}
+
+	// ── 6. Decode signature ──────────────────────────────────────────────────
+	sigBytes, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(strings.TrimSpace(assertion.Signature), "="))
+	if err != nil {
+		return nil, fmt.Errorf("invalid signature encoding")
+	}
+
+	// ── 7. Build verification data: authData || SHA-256(clientDataJSON) ──────
+	clientDataHash := sha256.Sum256(clientDataBytes)
+	verificationData := make([]byte, len(authDataBytes)+len(clientDataHash))
+	copy(verificationData, authDataBytes)
+	copy(verificationData[len(authDataBytes):], clientDataHash[:])
+
+	// ── 8. Load stored credential and verify signature ──────────────────────
 	cred, err := s.db.GetOAuthCredential(ctx, "passkey", credID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -573,6 +794,47 @@ func (s *AuthService) FinishPasskeyLogin(ctx context.Context, assertion PasskeyA
 		return nil, fmt.Errorf("lookup passkey: %w", err)
 	}
 
+	// Extract the COSE public key from the stored credential data.
+	var credData struct {
+		CredentialPublicKey string `json:"credentialPublicKey"`
+		SignCount          int64  `json:"signCount"`
+	}
+	if err := json.Unmarshal(cred.CredentialData, &credData); err != nil {
+		return nil, fmt.Errorf("parse stored credential data: %w", err)
+	}
+	// extractCOSEKey handles both the new format (raw COSE key) and the legacy
+	// format (full attestation object) that older registrations may have stored.
+	coseKeyB64, err := extractCOSEKey(credData.CredentialPublicKey)
+	if err != nil {
+		return nil, fmt.Errorf("parse stored public key: %w", err)
+	}
+	publicKeyBytes, err := base64.RawURLEncoding.DecodeString(coseKeyB64)
+	if err != nil {
+		return nil, fmt.Errorf("decode stored public key: %w", err)
+	}
+
+	parsedKey, err := webauthncose.ParsePublicKey(publicKeyBytes)
+	if err != nil {
+		return nil, fmt.Errorf("parse stored public key: %w", err)
+	}
+
+	valid, err := webauthncose.VerifySignature(parsedKey, verificationData, sigBytes)
+	if err != nil {
+		return nil, fmt.Errorf("passkey signature verification failed: %w", err)
+	}
+	if !valid {
+		return nil, fmt.Errorf("passkey signature verification failed")
+	}
+
+	// ── 9. Sign count replay protection ─────────────────────────────────────
+	signCount := binary.BigEndian.Uint32(authDataBytes[33:37])
+	storedSignCount := uint32(credData.SignCount)
+	if signCount > 0 && storedSignCount > 0 && signCount <= storedSignCount {
+		return nil, fmt.Errorf("possible passkey cloning detected")
+	}
+	_ = s.db.UpdatePasskeySignCount(ctx, credID, signCount)
+
+	// ── 10. Verify credential belongs to the claimed user ───────────────────
 	if challengeClaims.Username != "" {
 		userByName, err := s.db.GetUserByUsername(ctx, challengeClaims.Username)
 		if err != nil {
@@ -930,6 +1192,12 @@ func ComputeTwitterScore(accountAgeDays int, followerCount int, tweetCount int) 
 	return s
 }
 
+// ComputeLinkedInScore scores a LinkedIn account.
+// LinkedIn professional identity is inherently valuable; verification earns max score.
+func ComputeLinkedInScore() int16 {
+	return ProviderMaxScore["linkedin"]
+}
+
 // SetAPEnabled updates whether the user's profile is discoverable via ActivityPub.
 func (s *AuthService) SetAPEnabled(ctx context.Context, userID uuid.UUID, enabled bool) (db.User, error) {
 	return s.db.SetAPEnabled(ctx, userID, enabled)
@@ -949,4 +1217,288 @@ func (s *AuthService) RecordSocialStamp(ctx context.Context, userID uuid.UUID, p
 		return nil, err
 	}
 	return s.issueTokens(ctx, user, int(user.TrustLevel))
+}
+
+// ─── Password reset ───────────────────────────────────────────────────────────
+
+// RequestPasswordReset initiates a password reset flow by sending a reset link
+// to the user's email address.  If the email is not found, the call returns nil
+// to avoid leaking whether an account exists.
+func (s *AuthService) RequestPasswordReset(ctx context.Context, email string) error {
+	email = strings.ToLower(strings.TrimSpace(email))
+
+	if blocked, err := s.limiter.CheckAndIncrement(ctx, "pwreset:"+email, 5, time.Hour); err != nil {
+		log.Warn().Err(err).Msg("password reset rate limiter error")
+	} else if blocked {
+		return fmt.Errorf("too many password reset attempts — try again later")
+	}
+
+	user, err := s.db.GetUserByEmail(ctx, email)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			// No user found — return silently to avoid user enumeration.
+			return nil
+		}
+		return fmt.Errorf("get user by email: %w", err)
+	}
+
+	// Generate a 32-byte crypto-random token.
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return fmt.Errorf("generate reset token: %w", err)
+	}
+	rawToken := hex.EncodeToString(raw)
+
+	// Hash with SHA-256 before storing.
+	sum := sha256.Sum256([]byte(rawToken))
+	tokenHash := hex.EncodeToString(sum[:])
+
+	expiresAt := time.Now().Add(1 * time.Hour)
+	if err := s.db.CreatePasswordResetToken(ctx, user.ID, tokenHash, expiresAt); err != nil {
+		return fmt.Errorf("store reset token: %w", err)
+	}
+
+	frontendURL := s.oauthCfg.FrontendURL
+	if frontendURL == "" {
+		frontendURL = "http://localhost:3000"
+	}
+	resetLink := frontendURL + "/reset-password?token=" + rawToken
+
+	subject := "Reset your password"
+	body := "Hello,\n\nClick the link below to reset your password (valid for 1 hour):\n\n" +
+		resetLink + "\n\nIf you did not request a password reset, you can ignore this email.\n"
+
+	if err := s.sendEmail(email, subject, body); err != nil {
+		log.Warn().Err(err).Str("email", email).Msg("failed to send password reset email")
+	}
+
+	return nil
+}
+
+// ResetPassword validates the reset token and updates the user's password.
+func (s *AuthService) ResetPassword(ctx context.Context, token, newPassword string) error {
+	// Hash the incoming token to look it up.
+	sum := sha256.Sum256([]byte(token))
+	tokenHash := hex.EncodeToString(sum[:])
+
+	prt, err := s.db.GetPasswordResetToken(ctx, tokenHash)
+	if err != nil {
+		return fmt.Errorf("invalid or expired reset token")
+	}
+
+	if time.Now().After(prt.ExpiresAt) {
+		_ = s.db.DeletePasswordResetToken(ctx, tokenHash)
+		return fmt.Errorf("reset token has expired")
+	}
+
+	if len(newPassword) < 8 {
+		return fmt.Errorf("password must be at least 8 characters")
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("hash password: %w", err)
+	}
+
+	if err := s.db.UpdatePasswordCredential(ctx, prt.UserID, hash); err != nil {
+		return fmt.Errorf("update password: %w", err)
+	}
+
+	_ = s.db.DeletePasswordResetToken(ctx, tokenHash)
+
+	return nil
+}
+
+// ListCredentialTypes returns the distinct credential type strings for a user.
+func (s *AuthService) ListCredentialTypes(ctx context.Context, userID uuid.UUID) ([]string, error) {
+	return s.db.ListCredentialTypes(ctx, userID)
+}
+
+// DisconnectOAuth removes an OAuth credential type (e.g. "google", "facebook") for the
+// authenticated user.  Returns an error if the user would have no remaining login method.
+func (s *AuthService) DisconnectOAuth(ctx context.Context, userID uuid.UUID, provider string) error {
+	if provider != "google" && provider != "facebook" {
+		return fmt.Errorf("unsupported provider: %s", provider)
+	}
+
+	types, err := s.db.ListCredentialTypes(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("list credential types: %w", err)
+	}
+
+	// Check user has at least one other credential type after removal.
+	remaining := 0
+	for _, t := range types {
+		if t != provider {
+			remaining++
+		}
+	}
+	if remaining == 0 {
+		return fmt.Errorf("cannot disconnect last login method")
+	}
+
+	return s.db.DeleteCredentialByType(ctx, userID, provider)
+}
+
+// ─── Email verification ───────────────────────────────────────────────────────
+
+const emailVerifyTTL = 24 * time.Hour
+
+// sendVerificationEmail generates a verification token and emails the link.
+// It is a private helper — callers must already know the user's email.
+func (s *AuthService) sendVerificationEmail(ctx context.Context, userID uuid.UUID, email string) error {
+	// Delete any existing tokens for this user before creating a new one.
+	_ = s.db.DeleteEmailVerificationTokensByUser(ctx, userID)
+
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return fmt.Errorf("generate email verify token: %w", err)
+	}
+	rawToken := hex.EncodeToString(raw)
+	sum := sha256.Sum256([]byte(rawToken))
+	tokenHash := hex.EncodeToString(sum[:])
+
+	expiresAt := time.Now().Add(emailVerifyTTL)
+	if err := s.db.CreateEmailVerificationToken(ctx, userID, tokenHash, expiresAt); err != nil {
+		return fmt.Errorf("store email verify token: %w", err)
+	}
+
+	frontendURL := s.oauthCfg.FrontendURL
+	if frontendURL == "" {
+		frontendURL = "http://localhost:3000"
+	}
+	verifyLink := frontendURL + "/verify-email?token=" + rawToken
+
+	subject := "Verify your email address"
+	body := "Hello,\n\nPlease verify your email address by clicking the link below (valid for 24 hours):\n\n" +
+		verifyLink + "\n\nIf you did not create an account on Aleth, you can safely ignore this email.\n"
+
+	return s.sendEmail(email, subject, body)
+}
+
+// VerifyEmail validates a verification token and marks the user's email as verified.
+func (s *AuthService) VerifyEmail(ctx context.Context, token string) error {
+	sum := sha256.Sum256([]byte(token))
+	tokenHash := hex.EncodeToString(sum[:])
+
+	evt, err := s.db.GetEmailVerificationToken(ctx, tokenHash)
+	if err != nil {
+		return fmt.Errorf("invalid or expired verification token")
+	}
+
+	if time.Now().After(evt.ExpiresAt) {
+		_ = s.db.DeleteEmailVerificationToken(ctx, tokenHash)
+		return fmt.Errorf("verification token has expired")
+	}
+
+	if err := s.db.MarkEmailVerified(ctx, evt.UserID); err != nil {
+		return fmt.Errorf("mark email verified: %w", err)
+	}
+
+	_ = s.db.DeleteEmailVerificationToken(ctx, tokenHash)
+	return nil
+}
+
+// ResendVerificationEmail looks up the user by ID, then re-sends the verification email.
+func (s *AuthService) ResendVerificationEmail(ctx context.Context, userID uuid.UUID) error {
+	if blocked, err := s.limiter.CheckAndIncrement(ctx, "verify:"+userID.String(), 3, time.Hour); err != nil {
+		log.Warn().Err(err).Msg("email verify rate limiter error")
+	} else if blocked {
+		return fmt.Errorf("too many resend attempts — please wait before requesting another verification email")
+	}
+
+	user, err := s.db.GetUserByID(ctx, userID)
+	if err != nil {
+		return fmt.Errorf("get user: %w", err)
+	}
+	if user.EmailVerified {
+		return fmt.Errorf("email already verified")
+	}
+	if user.Email == nil {
+		return fmt.Errorf("no email address on file")
+	}
+	return s.sendVerificationEmail(ctx, userID, *user.Email)
+}
+
+// sendEmail sends a plaintext email via SMTP.  If SMTPHost is empty, the call
+// is a no-op (dev mode — a warning is logged instead).
+// DeleteAccount permanently removes a user's PII and revokes all sessions.
+// Posts and other content authored by this user remain in the database but are
+// orphaned (the author record is anonymised). The user is identified by the
+// caller's JWT — they must re-authenticate if they want to undo this.
+func (s *AuthService) DeleteAccount(ctx context.Context, userID uuid.UUID) error {
+	// Revoke all active sessions first so concurrent requests stop working immediately.
+	if err := s.db.RevokeAllRefreshTokensForUser(ctx, userID); err != nil {
+		return fmt.Errorf("revoke sessions: %w", err)
+	}
+	// Clear the login-failure counter (user is gone, no need to keep it).
+	_ = s.limiter.Reset(ctx, "")
+	// Soft-delete and anonymise the user record.
+	if err := s.db.SoftDeleteUser(ctx, userID); err != nil {
+		return fmt.Errorf("delete account: %w", err)
+	}
+	return nil
+}
+
+func (s *AuthService) sendEmail(to, subject, body string) error {
+	if s.smtpHost == "" {
+		log.Info().Str("to", to).Str("subject", subject).Msg("SMTP not configured — skipping email send")
+		return nil
+	}
+
+	from := s.smtpFrom
+	if from == "" {
+		from = "noreply@aleth.social"
+	}
+
+	msg := []byte(
+		"From: " + from + "\r\n" +
+			"To: " + to + "\r\n" +
+			"Subject: " + subject + "\r\n" +
+			"\r\n" +
+			body,
+	)
+
+	addr := fmt.Sprintf("%s:%d", s.smtpHost, s.smtpPort)
+
+	var auth smtp.Auth
+	if s.smtpUser != "" {
+		auth = smtp.PlainAuth("", s.smtpUser, s.smtpPassword, s.smtpHost)
+	}
+
+	if err := smtp.SendMail(addr, auth, from, []string{to}, msg); err != nil {
+		return fmt.Errorf("smtp send: %w", err)
+	}
+
+	return nil
+}
+
+// ─── Input validation helpers ─────────────────────────────────────────────────
+
+var emailRegex = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
+
+func isValidEmail(email string) bool {
+	return len(email) <= 254 && emailRegex.MatchString(email)
+}
+
+var usernameRegex = regexp.MustCompile(`^[a-zA-Z0-9_]{3,30}$`)
+
+var reservedUsernames = map[string]bool{
+	"admin": true, "api": true, "graphql": true, "healthz": true,
+	"support": true, "help": true, "about": true, "terms": true,
+	"privacy": true, "security": true, "login": true, "logout": true,
+	"register": true, "signup": true, "signin": true, "me": true,
+	"settings": true, "notifications": true, "explore": true, "feed": true,
+	"moderator": true, "mod": true, "staff": true, "team": true,
+	"aleth": true, "system": true, "null": true, "undefined": true,
+}
+
+func validateUsername(username string) error {
+	if !usernameRegex.MatchString(username) {
+		return fmt.Errorf("username must be 3–30 characters and contain only letters, numbers, and underscores")
+	}
+	if reservedUsernames[strings.ToLower(username)] {
+		return fmt.Errorf("that username is reserved")
+	}
+	return nil
 }

@@ -1,3 +1,4 @@
+-- +goose Up
 -- Board-level VC policy for domain-gated participation.
 --
 -- require_vcs is a JSONB array of VC requirements that a user must satisfy

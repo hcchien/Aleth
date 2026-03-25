@@ -1,3 +1,4 @@
+-- +goose Up
 -- vc_type_registry: canonical list of VC types that the platform and users can define.
 -- issuer is the namespace owner — "platform" for built-ins, or a user's username for custom types.
 -- Board policy requireVcs entries must reference a (vc_type, issuer) pair present in this table.

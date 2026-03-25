@@ -37,6 +37,7 @@ type Post {
   noteTitle: String
   noteCover: String
   noteSummary: String
+  imageUrls: [String!]!
   resharedFromId: ID
   replyCount: Int!
   likeCount: Int!
@@ -100,6 +101,7 @@ type ArticleConnection {
 
 input CreatePostInput {
   content: String!
+  imageUrls: [String!]
 }
 
 input CreateArticleInput {
@@ -146,7 +148,7 @@ input ResharePostInput {
 
 type Series {
   id: ID!
-  boardId: ID!
+  boardId: ID
   title: String!
   description: String
   articleCount: Int!
@@ -156,7 +158,8 @@ type Series {
 }
 
 input CreateSeriesInput {
-  boardId: ID!
+  boardId: ID
+  pageId: ID
   title: String!
   description: String
 }
@@ -245,6 +248,7 @@ type Query {
   myPages: [FanPage!]!
   series(id: ID!): Series
   boardSeries(boardId: ID!): [Series!]!
+  pageSeries(pageId: ID!): [Series!]!
 }
 
 type Mutation {
@@ -253,6 +257,9 @@ type Mutation {
   resharePost(postId: ID!, input: ResharePostInput!): Post!
   replyPost(postId: ID!, input: CreatePostInput!): Post!
   deletePost(id: ID!): Boolean!
+  # Moderator/admin delete — requires trust_level >= 5, bypasses ownership check.
+  adminDeletePost(id: ID!): Boolean!
+  reportPost(postId: ID!, reason: String!, note: String!): Boolean!
   likePost(postId: ID!): Boolean!
   unlikePost(postId: ID!): Boolean!
   reactPost(postId: ID!, emotion: String!): Boolean!

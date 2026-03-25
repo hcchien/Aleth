@@ -7,110 +7,163 @@ import { ThemeForm } from "./theme-form";
 import type { Theme } from "./theme-form";
 import { FederationToggle } from "./federation-toggle";
 import { RemoteFollows } from "./remote-follows";
+import { ForumShell } from "@/app/components/forum-shell";
+
+// ─── Section card ────────────────────────────────────────────────────────────
+
+function SectionCard({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="rounded-2xl border border-[var(--app-border-inner)] bg-[var(--app-surface-3)] p-5">
+      {children}
+    </div>
+  );
+}
+
+function SectionLink({
+  href,
+  title,
+  description,
+  accent,
+}: {
+  href: string;
+  title: string;
+  description: string;
+  accent?: boolean;
+}) {
+  return (
+    <Link
+      href={href}
+      className={`group flex items-center justify-between rounded-2xl border p-5 transition-all ${
+        accent
+          ? "border-[var(--app-accent-border)] bg-[var(--app-accent-bg)] hover:border-[var(--app-accent)] hover:bg-[var(--app-accent-bg)]"
+          : "border-[var(--app-border-inner)] bg-[var(--app-surface-3)] hover:border-[var(--app-accent-border)] hover:bg-[var(--app-surface-2)]"
+      }`}
+    >
+      <div>
+        <h2
+          className={`text-sm font-bold tracking-tight ${
+            accent ? "text-[var(--app-accent)]" : "text-[var(--app-text-heading)]"
+          }`}
+        >
+          {title}
+        </h2>
+        <p className="mt-0.5 text-xs text-[var(--app-text-muted)]">{description}</p>
+      </div>
+      <svg
+        width="16"
+        height="16"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="shrink-0 text-[var(--app-text-dim)] group-hover:text-[var(--app-text-secondary)] transition-colors"
+        aria-hidden="true"
+      >
+        <path d="M9 18l6-6-6-6" />
+      </svg>
+    </Link>
+  );
+}
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default async function SettingsPage() {
   const locale = (await getLocale()) as Locale;
   const t = await getTranslations("settings");
-  const tn = await getTranslations("nav");
   const cookieStore = await cookies();
   const theme = (cookieStore.get("theme")?.value === "light" ? "light" : "dark") as Theme;
 
   return (
-    <div className="min-h-screen bg-[var(--app-bg)] text-[var(--app-text)]">
-      <div className="mx-auto max-w-2xl px-4 py-10 pb-20">
-        {/* Breadcrumb */}
-        <nav className="mb-8 flex items-center gap-2 text-sm text-[var(--app-text-muted)]">
-          <Link href="/" className="hover:text-[var(--app-text-secondary)] transition-colors">
-            {tn("feed")}
-          </Link>
-          <span>›</span>
-          <span className="text-[var(--app-text-secondary)]">{t("title")}</span>
-        </nav>
+    <ForumShell>
+      <div className="mx-auto max-w-xl">
+        {/* Page heading */}
+        <div className="mb-8">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-[var(--app-text-muted)] mb-1">
+            Settings
+          </p>
+          <h1
+            className="text-3xl font-bold text-[var(--app-text-heading)]"
+            style={{ fontFamily: "var(--font-newsreader)" }}
+          >
+            {t("title")}
+          </h1>
+        </div>
 
-        <h1 className="mb-8 font-serif text-3xl text-[var(--app-text-heading)]">{t("title")}</h1>
+        <div className="space-y-3">
+          {/* Identity — primary CTA */}
+          <SectionLink
+            href="/identity"
+            title="Identity & Verification"
+            description="Manage your DID, trust level, and verification stamps."
+            accent
+          />
 
-        {/* Appearance */}
-        <section className="mb-4 rounded-xl border border-[var(--app-border-2)] bg-[var(--app-surface)] p-5">
-          <h2 className="mb-1 text-sm font-semibold text-[var(--app-text-bright)]">{t("appearance")}</h2>
-          <p className="mb-4 text-xs text-[var(--app-text-muted)]">{t("appearanceDesc")}</p>
-          <ThemeForm current={theme} />
-        </section>
+          {/* Reputation */}
+          <SectionLink
+            href="/settings/reputation"
+            title={t("reputation")}
+            description={t("reputationDesc")}
+          />
 
-        {/* Language */}
-        <section className="mb-4 rounded-xl border border-[var(--app-border-2)] bg-[var(--app-surface)] p-5">
-          <h2 className="mb-1 text-sm font-semibold text-[var(--app-text-bright)]">{t("language")}</h2>
-          <p className="mb-4 text-xs text-[var(--app-text-muted)]">{t("languageDesc")}</p>
-          <LocaleForm current={locale} />
-        </section>
+          {/* Security */}
+          <SectionLink
+            href="/settings/security"
+            title={t("security")}
+            description={t("securityDesc")}
+          />
 
-        {/* Security */}
-        <Link
-          href="/settings/security"
-          className="mb-4 flex items-center justify-between rounded-xl border border-[var(--app-border-2)] bg-[var(--app-surface)] p-5 transition-colors hover:border-[var(--app-border-hover)] hover:bg-[var(--app-surface-hover)]"
-        >
-          <div>
-            <h2 className="text-sm font-semibold text-[var(--app-text-bright)]">{t("security")}</h2>
-            <p className="mt-0.5 text-xs text-[var(--app-text-muted)]">{t("securityDesc")}</p>
-          </div>
-          <span className="text-[var(--app-text-dim)]">›</span>
-        </Link>
+          {/* Appearance */}
+          <SectionCard>
+            <h2 className="mb-1 text-sm font-bold tracking-tight text-[var(--app-text-heading)]">
+              {t("appearance")}
+            </h2>
+            <p className="mb-4 text-xs text-[var(--app-text-muted)]">{t("appearanceDesc")}</p>
+            <ThemeForm current={theme} />
+          </SectionCard>
 
-        {/* Reputation (L2) */}
-        <Link
-          href="/settings/reputation"
-          className="mb-4 flex items-center justify-between rounded-xl border border-[var(--app-border-2)] bg-[var(--app-surface)] p-5 transition-colors hover:border-[var(--app-border-hover)] hover:bg-[var(--app-surface-hover)]"
-        >
-          <div>
-            <h2 className="text-sm font-semibold text-[var(--app-text-bright)]">{t("reputation")}</h2>
-            <p className="mt-0.5 text-xs text-[var(--app-text-muted)]">{t("reputationDesc")}</p>
-          </div>
-          <span className="text-[var(--app-text-dim)]">›</span>
-        </Link>
+          {/* Language */}
+          <SectionCard>
+            <h2 className="mb-1 text-sm font-bold tracking-tight text-[var(--app-text-heading)]">
+              {t("language")}
+            </h2>
+            <p className="mb-4 text-xs text-[var(--app-text-muted)]">{t("languageDesc")}</p>
+            <LocaleForm current={locale} />
+          </SectionCard>
 
-        {/* ActivityPub Federation */}
-        <section className="mb-4 rounded-xl border border-[var(--app-border-2)] bg-[var(--app-surface)] p-5">
-          <h2 className="mb-1 text-sm font-semibold text-[var(--app-text-bright)]">{t("federation")}</h2>
-          <p className="mb-4 text-xs text-[var(--app-text-muted)]">{t("federationDesc")}</p>
-          <FederationToggle />
-          <RemoteFollows />
-        </section>
+          {/* ActivityPub Federation */}
+          <SectionCard>
+            <h2 className="mb-1 text-sm font-bold tracking-tight text-[var(--app-text-heading)]">
+              {t("federation")}
+            </h2>
+            <p className="mb-4 text-xs text-[var(--app-text-muted)]">{t("federationDesc")}</p>
+            <FederationToggle />
+            <RemoteFollows />
+          </SectionCard>
 
-        {/* Board settings */}
-        <Link
-          href="/settings/board"
-          className="mb-4 flex items-center justify-between rounded-xl border border-[var(--app-border-2)] bg-[var(--app-surface)] p-5 transition-colors hover:border-[var(--app-border-hover)] hover:bg-[var(--app-surface-hover)]"
-        >
-          <div>
-            <h2 className="text-sm font-semibold text-[var(--app-text-bright)]">{t("board")}</h2>
-            <p className="mt-0.5 text-xs text-[var(--app-text-muted)]">{t("boardDesc")}</p>
-          </div>
-          <span className="text-[var(--app-text-dim)]">›</span>
-        </Link>
+          {/* Board */}
+          <SectionLink
+            href="/settings/board"
+            title={t("board")}
+            description={t("boardDesc")}
+          />
 
-        {/* Fan pages */}
-        <Link
-          href="/settings/pages"
-          className="mb-4 flex items-center justify-between rounded-xl border border-[var(--app-border-2)] bg-[var(--app-surface)] p-5 transition-colors hover:border-[var(--app-border-hover)] hover:bg-[var(--app-surface-hover)]"
-        >
-          <div>
-            <h2 className="text-sm font-semibold text-[var(--app-text-bright)]">{t("pages")}</h2>
-            <p className="mt-0.5 text-xs text-[var(--app-text-muted)]">{t("pagesDesc")}</p>
-          </div>
-          <span className="text-[var(--app-text-dim)]">›</span>
-        </Link>
+          {/* Fan pages */}
+          <SectionLink
+            href="/settings/pages"
+            title={t("pages")}
+            description={t("pagesDesc")}
+          />
 
-        {/* Article series */}
-        <Link
-          href="/settings/series"
-          className="flex items-center justify-between rounded-xl border border-[var(--app-border-2)] bg-[var(--app-surface)] p-5 transition-colors hover:border-[var(--app-border-hover)] hover:bg-[var(--app-surface-hover)]"
-        >
-          <div>
-            <h2 className="text-sm font-semibold text-[var(--app-text-bright)]">{t("seriesTitle")}</h2>
-            <p className="mt-0.5 text-xs text-[var(--app-text-muted)]">{t("seriesDesc")}</p>
-          </div>
-          <span className="text-[var(--app-text-dim)]">›</span>
-        </Link>
+          {/* Series */}
+          <SectionLink
+            href="/settings/series"
+            title={t("seriesTitle")}
+            description={t("seriesDesc")}
+          />
+        </div>
       </div>
-    </div>
+    </ForumShell>
   );
 }

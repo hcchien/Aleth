@@ -4,6 +4,7 @@ type User {
   username: String!
   displayName: String
   email: String
+  emailVerified: Boolean!
   trustLevel: Int!
   # apEnabled controls whether this user's profile is discoverable via ActivityPub.
   apEnabled: Boolean!
@@ -92,6 +93,8 @@ type Query {
   me: User
   didDocument(did: String!): String
   followStats(userID: ID!): FollowStats!
+  # Returns the distinct credential types the current user has (e.g. ["passkey", "google"]).
+  myCredentialTypes: [String!]!
   # Returns the authenticated viewer's verifiable credentials (valid + revoked).
   myVcs: [UserVc!]!
   # Returns all enabled VC types from the registry.
@@ -143,6 +146,25 @@ type Mutation {
   # verifyPhoneOTP checks the code and, on success, records the phone stamp
   # and re-issues tokens with an updated trust level.
   verifyPhoneOTP(phone: String!, code: String!): AuthPayload!
+  # startSocialVerification initiates an OAuth 2.0 flow for the given social provider
+  # ("twitter" | "facebook" | "instagram" | "linkedin").
+  # Returns the provider's authorization URL; the client should redirect there.
+  # On completion the provider redirects back to the auth service callback, which
+  # then redirects to /settings/reputation?verified={provider} (or ?error=...).
+  startSocialVerification(provider: String!): String!
   # setActivityPubEnabled opts the authenticated user in/out of AP federation.
   setActivityPubEnabled(enabled: Boolean!): Boolean!
+  # Password reset flow — both mutations always return true to avoid leaking info.
+  requestPasswordReset(email: String!): Boolean!
+  resetPassword(token: String!, newPassword: String!): Boolean!
+  # Disconnect a social OAuth login method ("google" | "facebook").
+  # Returns false if it would be the user's last login method.
+  disconnectOAuth(provider: String!): Boolean!
+  # Email verification — verifyEmail consumes the single-use token from the link.
+  # resendVerificationEmail re-sends the link to the authenticated user's email.
+  verifyEmail(token: String!): Boolean!
+  resendVerificationEmail: Boolean!
+  # Permanently deletes the authenticated user's account and anonymises their PII.
+  # All active sessions are revoked immediately. This action is irreversible.
+  deleteAccount: Boolean!
 }

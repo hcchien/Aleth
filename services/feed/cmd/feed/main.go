@@ -19,6 +19,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/aleth/feed/graph"
+	"github.com/aleth/feed/internal/cache"
 	"github.com/aleth/feed/internal/config"
 	"github.com/aleth/feed/internal/db"
 	"github.com/aleth/feed/internal/service"
@@ -90,10 +91,23 @@ func main() {
 	}
 	defer authPool.Close()
 
+	// ── Redis cache (optional) ──────────────────────────────────────────────
+	redisClient, err := cache.New(context.Background(), cfg.RedisURL)
+	if err != nil {
+		log.Fatal().Err(err).Msg("connect to Redis")
+	}
+	if redisClient != nil {
+		defer redisClient.Close()
+		log.Info().Str("url", cfg.RedisURL).Msg("feed cache enabled")
+	} else {
+		log.Info().Msg("feed cache disabled (FEED_REDIS_URL not set)")
+	}
+
 	// ── Service wiring ──────────────────────────────────────────────────────
 	authStore := db.NewAuthStore(authPool)
 	contentStore := db.NewContentStore(contentPool)
 	svc := service.NewFeedService(authStore, contentStore)
+	svc.SetCache(redisClient)
 
 	// ── GraphQL handler ─────────────────────────────────────────────────────
 	gqlSchema := graph.NewSchema(svc)

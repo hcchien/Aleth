@@ -357,7 +357,8 @@ func (r *Resolver) ArticleComments(ctx context.Context, args struct {
 // ─── Mutation resolvers ───────────────────────────────────────────────────────
 
 type CreatePostInput struct {
-	Content string
+	Content   string
+	ImageUrls *[]string
 }
 
 func (r *Resolver) CreatePost(ctx context.Context, args struct{ Input CreatePostInput }) (*PostResolver, error) {
@@ -369,7 +370,11 @@ func (r *Resolver) CreatePost(ctx context.Context, args struct{ Input CreatePost
 	if err != nil {
 		return nil, fmt.Errorf("invalid user id")
 	}
-	post, err := r.svc.CreatePost(ctx, authorID, args.Input.Content, claims.TrustLevel, nil)
+	var imageURLs []string
+	if args.Input.ImageUrls != nil {
+		imageURLs = *args.Input.ImageUrls
+	}
+	post, err := r.svc.CreatePost(ctx, authorID, args.Input.Content, imageURLs, claims.TrustLevel, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -414,6 +419,41 @@ func (r *Resolver) DeletePost(ctx context.Context, args struct{ ID graphql.ID })
 	}
 	authorID, _ := uuid.Parse(claims.UserID)
 	if err := r.svc.DeletePost(ctx, postID, authorID); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (r *Resolver) AdminDeletePost(ctx context.Context, args struct{ ID graphql.ID }) (bool, error) {
+	claims, ok := ClaimsFromContext(ctx)
+	if !ok {
+		return false, fmt.Errorf("not authenticated")
+	}
+	postID, err := uuid.Parse(string(args.ID))
+	if err != nil {
+		return false, fmt.Errorf("invalid post id")
+	}
+	if err := r.svc.AdminDeletePost(ctx, postID, int(claims.TrustLevel)); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (r *Resolver) ReportPost(ctx context.Context, args struct {
+	PostId graphql.ID
+	Reason string
+	Note   string
+}) (bool, error) {
+	claims, ok := ClaimsFromContext(ctx)
+	if !ok {
+		return false, fmt.Errorf("not authenticated")
+	}
+	postID, err := uuid.Parse(string(args.PostId))
+	if err != nil {
+		return false, fmt.Errorf("invalid post id")
+	}
+	reporterID, _ := uuid.Parse(claims.UserID)
+	if err := r.svc.ReportPost(ctx, reporterID, postID, args.Reason, args.Note); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -738,6 +778,12 @@ func (r *PostResolver) Content() string      { return r.post.Content }
 func (r *PostResolver) NoteTitle() *string   { return r.post.NoteTitle }
 func (r *PostResolver) NoteCover() *string   { return r.post.NoteCover }
 func (r *PostResolver) NoteSummary() *string { return r.post.NoteSummary }
+func (r *PostResolver) ImageUrls() []string {
+	if r.post.ImageURLs == nil {
+		return []string{}
+	}
+	return r.post.ImageURLs
+}
 func (r *PostResolver) ResharedFromId() *graphql.ID {
 	if r.post.ResharedFromID == nil {
 		return nil
@@ -1457,7 +1503,13 @@ type SeriesResolver struct {
 }
 
 func (r *SeriesResolver) ID() graphql.ID        { return graphql.ID(r.series.ID.String()) }
-func (r *SeriesResolver) BoardId() graphql.ID   { return graphql.ID(r.series.BoardID.String()) }
+func (r *SeriesResolver) BoardId() *graphql.ID {
+	if r.series.BoardID == nil {
+		return nil
+	}
+	id := graphql.ID(r.series.BoardID.String())
+	return &id
+}
 func (r *SeriesResolver) Title() string         { return r.series.Title }
 func (r *SeriesResolver) Description() *string  { return r.series.Description }
 func (r *SeriesResolver) CreatedAt() string     { return r.series.CreatedAt.UTC().Format(time.RFC3339) }
@@ -1511,7 +1563,8 @@ func (r *Resolver) BoardSeries(ctx context.Context, args struct{ BoardId graphql
 }
 
 type CreateSeriesInput struct {
-	BoardId     graphql.ID
+	BoardId     *graphql.ID
+	PageId      *graphql.ID
 	Title       string
 	Description *string
 }
@@ -1530,7 +1583,21 @@ func (r *Resolver) CreateSeries(ctx context.Context, args struct{ Input CreateSe
 	if err != nil {
 		return nil, fmt.Errorf("invalid user ID in token")
 	}
-	boardID, err := uuid.Parse(string(args.Input.BoardId))
+	if args.Input.PageId != nil {
+		pageID, err := uuid.Parse(string(*args.Input.PageId))
+		if err != nil {
+			return nil, fmt.Errorf("invalid page ID")
+		}
+		series, err := r.svc.CreatePageSeries(ctx, callerID, pageID, args.Input.Title, args.Input.Description)
+		if err != nil {
+			return nil, err
+		}
+		return &SeriesResolver{series: series, svc: r.svc}, nil
+	}
+	if args.Input.BoardId == nil {
+		return nil, fmt.Errorf("either boardId or pageId is required")
+	}
+	boardID, err := uuid.Parse(string(*args.Input.BoardId))
 	if err != nil {
 		return nil, fmt.Errorf("invalid board ID")
 	}
@@ -1539,6 +1606,22 @@ func (r *Resolver) CreateSeries(ctx context.Context, args struct{ Input CreateSe
 		return nil, err
 	}
 	return &SeriesResolver{series: series, svc: r.svc}, nil
+}
+
+func (r *Resolver) PageSeries(ctx context.Context, args struct{ PageId graphql.ID }) ([]*SeriesResolver, error) {
+	pageID, err := uuid.Parse(string(args.PageId))
+	if err != nil {
+		return nil, fmt.Errorf("invalid page ID")
+	}
+	seriesList, err := r.svc.ListSeriesByPage(ctx, pageID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*SeriesResolver, len(seriesList))
+	for i, s := range seriesList {
+		out[i] = &SeriesResolver{series: s, svc: r.svc}
+	}
+	return out, nil
 }
 
 func (r *Resolver) UpdateSeries(ctx context.Context, args struct {

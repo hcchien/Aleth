@@ -1,0 +1,133 @@
+type AdminUser {
+  id: ID!
+  username: String!
+  email: String!
+  role: String!
+  isActive: Boolean!
+  lastLoginAt: String
+  createdAt: String!
+}
+
+type AdminAuthPayload {
+  token: String!
+  admin: AdminUser!
+}
+
+type DashboardStats {
+  openReports:  Int!
+  newUsers24h:  Int!
+  newUsers7d:   Int!
+  newPosts24h:  Int!
+  newPosts7d:   Int!
+  totalUsers:   Int!
+  totalPosts:   Int!
+}
+
+type ReportItem {
+  id:         ID!
+  reason:     String!
+  note:       String
+  reporterId: ID!
+  reporterUsername: String!
+  createdAt:  String!
+}
+
+type ReportGroup {
+  postId:       ID!
+  postContent:  String!
+  postDeleted:  Boolean!
+  authorId:     ID!
+  authorUsername: String!
+  reportCount:  Int!
+  oldestReport: String!
+  reports:      [ReportItem!]!
+}
+
+type ReportGroupConnection {
+  items:      [ReportGroup!]!
+  nextCursor: String
+  hasMore:    Boolean!
+}
+
+type AdminUserSummary {
+  id:          ID!
+  username:    String!
+  displayName: String
+  email:       String
+  trustLevel:  Int!
+  isSuspended: Boolean!
+  createdAt:   String!
+  postCount:   Int!
+  reportCount: Int!
+}
+
+type UserConnection {
+  items:      [AdminUserSummary!]!
+  nextCursor: String
+  hasMore:    Boolean!
+}
+
+type AdminPost {
+  id:             ID!
+  content:        String!
+  authorId:       ID!
+  authorUsername: String!
+  replyCount:     Int!
+  likeCount:      Int!
+  openReports:    Int!
+  createdAt:      String!
+  deletedAt:      String
+}
+
+type PostConnection {
+  items:      [AdminPost!]!
+  nextCursor: String
+  hasMore:    Boolean!
+}
+
+type AuditEntry {
+  id:         ID!
+  adminId:    ID!
+  adminUsername: String!
+  action:     String!
+  targetType: String!
+  targetId:   ID!
+  note:       String
+  metadata:   String
+  createdAt:  String!
+}
+
+type AuditConnection {
+  items:      [AuditEntry!]!
+  nextCursor: String
+  hasMore:    Boolean!
+}
+
+type Query {
+  me: AdminUser!
+
+  dashboardStats: DashboardStats!
+
+  reportQueue(after: String, limit: Int): ReportGroupConnection!
+  resolvedReports(after: String, limit: Int): ReportGroupConnection!
+
+  users(search: String, trustLevel: Int, suspended: Boolean, after: String, limit: Int): UserConnection!
+  user(id: ID!): AdminUserSummary
+
+  posts(authorId: ID, after: String, limit: Int): PostConnection!
+
+  auditLog(adminId: ID, targetType: String, targetId: ID, after: String, limit: Int): AuditConnection!
+}
+
+type Mutation {
+  adminLogin(username: String!, password: String!): AdminAuthPayload!
+
+  resolveReports(postId: ID!, note: String): Boolean!
+  dismissReports(postId: ID!, note: String): Boolean!
+
+  deletePost(postId: ID!, note: String): Boolean!
+
+  setTrustLevel(userId: ID!, trustLevel: Int!, note: String): Boolean!
+  suspendUser(userId: ID!, note: String): Boolean!
+  unsuspendUser(userId: ID!, note: String): Boolean!
+}

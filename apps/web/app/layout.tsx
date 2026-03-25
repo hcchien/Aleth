@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Inter, Playfair_Display, Lora, JetBrains_Mono } from "next/font/google";
+import { Inter, Playfair_Display, Lora, JetBrains_Mono, Manrope, Newsreader } from "next/font/google";
 import { NextIntlClientProvider } from "next-intl";
 import { getLocale, getMessages } from "next-intl/server";
 import { cookies } from "next/headers";
@@ -10,6 +10,19 @@ const inter = Inter({
   variable: "--font-inter",
   subsets: ["latin"],
   display: "swap",
+});
+
+const manrope = Manrope({
+  variable: "--font-manrope",
+  subsets: ["latin"],
+  display: "swap",
+});
+
+const newsreader = Newsreader({
+  variable: "--font-newsreader",
+  subsets: ["latin"],
+  display: "swap",
+  style: ["normal", "italic"],
 });
 
 const playfair = Playfair_Display({
@@ -46,13 +59,13 @@ export default async function RootLayout({
   const theme = cookieStore.get("theme")?.value === "dark" ? "dark" : "light";
 
   return (
-    <html lang={locale} className={theme} suppressHydrationWarning>
+    <html lang={locale} className={theme} suppressHydrationWarning data-scroll-behavior="smooth">
       <body
-        className={`${inter.variable} ${playfair.variable} ${lora.variable} ${jetbrainsMono.variable} antialiased`}
+        className={`${inter.variable} ${manrope.variable} ${newsreader.variable} ${playfair.variable} ${lora.variable} ${jetbrainsMono.variable} antialiased`}
       >
         <NextIntlClientProvider locale={locale} messages={messages}>
           <Providers>
-            <main>{children}</main>
+            <div>{children}</div>
           </Providers>
         </NextIntlClientProvider>
       </body>

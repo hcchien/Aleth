@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/hex"
+	"strings"
 
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/viper"
@@ -27,6 +28,11 @@ type Config struct {
 	// PlatformKeySecret is a 32-byte key (decoded from hex) used to
 	// AES-256-GCM encrypt actor private keys at rest.
 	PlatformKeySecret []byte
+
+	// SkipSigVerify disables HTTP Signature verification on incoming inbox
+	// requests. Set FEDERATION_SKIP_SIG_VERIFY=true for local development
+	// where remote servers cannot reach your instance to verify keys.
+	SkipSigVerify bool
 }
 
 // Load reads configuration from environment variables prefixed with FEDERATION_.
@@ -55,12 +61,25 @@ func Load() Config {
 		log.Fatal().Msg("FEDERATION_PLATFORM_KEY_SECRET must be a 64-character hex string (32 bytes)")
 	}
 
-	return Config{
+	cfg := Config{
 		Port:              viper.GetString("PORT"),
 		DatabaseURL:       dbURL,
 		Domain:            domain,
 		AuthServiceURL:    viper.GetString("AUTH_URL"),
 		ContentServiceURL: viper.GetString("CONTENT_URL"),
 		PlatformKeySecret: keyBytes,
+		SkipSigVerify:     viper.GetBool("SKIP_SIG_VERIFY"),
 	}
+
+	if cfg.SkipSigVerify && !isLocalDomain(cfg.Domain) {
+		log.Fatal().Msg("FEDERATION_SKIP_SIG_VERIFY must not be set in production (domain: " + cfg.Domain + ")")
+	}
+
+	return cfg
+}
+
+func isLocalDomain(domain string) bool {
+	return strings.HasPrefix(domain, "localhost") ||
+		strings.HasPrefix(domain, "127.0.0.1") ||
+		strings.HasPrefix(domain, "0.0.0.0")
 }

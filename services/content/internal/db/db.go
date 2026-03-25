@@ -72,6 +72,7 @@ type Post struct {
 	NoteTitle      *string
 	NoteCover      *string
 	NoteSummary    *string
+	ImageURLs      []string
 	ResharedFromID *uuid.UUID
 	PageID         *uuid.UUID
 	ReachScore     float64
@@ -301,23 +302,28 @@ type CreatePostParams struct {
 	ParentID         *uuid.UUID
 	RootID           *uuid.UUID
 	Content          string
+	ImageURLs        []string
 	AuthorTrustLevel int
 	PageID           *uuid.UUID
 }
 
 func (p *Pool) CreatePost(ctx context.Context, params CreatePostParams) (Post, error) {
 	const q = `
-		INSERT INTO posts (author_id, parent_id, root_id, content, reach_score, page_id)
-		VALUES ($1, $2, $3, $4, $5, $6)
+		INSERT INTO posts (author_id, parent_id, root_id, content, image_urls, reach_score, page_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING id, author_id, parent_id, root_id, kind, content,
-		          note_title, note_cover, note_summary, reshared_from_id, page_id,
+		          note_title, note_cover, note_summary, image_urls, reshared_from_id, page_id,
 		          reach_score, signature, created_at, deleted_at,
 		          0::bigint AS like_count, 0::bigint AS reply_count, false AS is_liked,
 		          NULL::text AS viewer_emotion
 	`
+	imageURLs := params.ImageURLs
+	if imageURLs == nil {
+		imageURLs = []string{}
+	}
 	initialReachScore := TrustMultiplier(params.AuthorTrustLevel)
 	return scanPost(p.pool.QueryRow(ctx, q,
-		params.AuthorID, params.ParentID, params.RootID, params.Content, initialReachScore, params.PageID))
+		params.AuthorID, params.ParentID, params.RootID, params.Content, imageURLs, initialReachScore, params.PageID))
 }
 
 // GetPostByID returns a post with computed like/reply counts and isLiked for viewerID.
@@ -325,7 +331,7 @@ func (p *Pool) CreatePost(ctx context.Context, params CreatePostParams) (Post, e
 func (p *Pool) GetPostByID(ctx context.Context, id uuid.UUID, viewerID *uuid.UUID) (Post, error) {
 	const q = `
 		SELECT p.id, p.author_id, p.parent_id, p.root_id, p.kind, p.content,
-		       p.note_title, p.note_cover, p.note_summary, p.reshared_from_id, p.page_id,
+		       p.note_title, p.note_cover, p.note_summary, p.image_urls, p.reshared_from_id, p.page_id,
 		       p.reach_score, p.signature, p.created_at, p.deleted_at,
 		       (SELECT COUNT(*) FROM post_likes WHERE post_id = p.id) AS like_count,
 		       (SELECT COUNT(*) FROM posts WHERE parent_id = p.id AND deleted_at IS NULL) AS reply_count,
@@ -351,7 +357,7 @@ func (p *Pool) ListPosts(ctx context.Context, params ListPostsParams) ([]Post, e
 
 	const q = `
 		SELECT p.id, p.author_id, p.parent_id, p.root_id, p.kind, p.content,
-		       p.note_title, p.note_cover, p.note_summary, p.reshared_from_id, p.page_id,
+		       p.note_title, p.note_cover, p.note_summary, p.image_urls, p.reshared_from_id, p.page_id,
 		       p.reach_score, p.signature, p.created_at, p.deleted_at,
 		       (SELECT COUNT(*) FROM post_likes WHERE post_id = p.id) AS like_count,
 		       (SELECT COUNT(*) FROM posts WHERE parent_id = p.id AND deleted_at IS NULL) AS reply_count,
@@ -387,7 +393,7 @@ func (p *Pool) ListPostReplies(ctx context.Context, params ListPostRepliesParams
 
 	const q = `
 		SELECT p.id, p.author_id, p.parent_id, p.root_id, p.kind, p.content,
-		       p.note_title, p.note_cover, p.note_summary, p.reshared_from_id, p.page_id,
+		       p.note_title, p.note_cover, p.note_summary, p.image_urls, p.reshared_from_id, p.page_id,
 		       p.reach_score, p.signature, p.created_at, p.deleted_at,
 		       (SELECT COUNT(*) FROM post_likes WHERE post_id = p.id) AS like_count,
 		       (SELECT COUNT(*) FROM posts WHERE parent_id = p.id AND deleted_at IS NULL) AS reply_count,
@@ -417,6 +423,22 @@ func (p *Pool) SoftDeletePost(ctx context.Context, id, authorID uuid.UUID) error
 	}
 	if tag.RowsAffected() == 0 {
 		return fmt.Errorf("post not found or not owned by user")
+	}
+	return nil
+}
+
+// AdminSoftDeletePost soft-deletes a post regardless of authorship.
+// The caller must verify moderator privileges before calling this.
+func (p *Pool) AdminSoftDeletePost(ctx context.Context, id uuid.UUID) error {
+	tag, err := p.pool.Exec(ctx,
+		`UPDATE posts SET deleted_at = now() WHERE id = $1 AND deleted_at IS NULL`,
+		id,
+	)
+	if err != nil {
+		return fmt.Errorf("admin delete post: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("post not found or already deleted")
 	}
 	return nil
 }
@@ -479,7 +501,7 @@ func scanPost(row pgx.Row) (Post, error) {
 	var post Post
 	err := row.Scan(
 		&post.ID, &post.AuthorID, &post.ParentID, &post.RootID, &post.Kind, &post.Content,
-		&post.NoteTitle, &post.NoteCover, &post.NoteSummary, &post.ResharedFromID, &post.PageID,
+		&post.NoteTitle, &post.NoteCover, &post.NoteSummary, &post.ImageURLs, &post.ResharedFromID, &post.PageID,
 		&post.ReachScore, &post.Signature, &post.CreatedAt, &post.DeletedAt,
 		&post.LikeCount, &post.ReplyCount, &post.IsLiked, &post.ViewerEmotion,
 	)
@@ -495,7 +517,7 @@ func collectPosts(rows pgx.Rows) ([]Post, error) {
 		var post Post
 		err := rows.Scan(
 			&post.ID, &post.AuthorID, &post.ParentID, &post.RootID, &post.Kind, &post.Content,
-			&post.NoteTitle, &post.NoteCover, &post.NoteSummary, &post.ResharedFromID, &post.PageID,
+			&post.NoteTitle, &post.NoteCover, &post.NoteSummary, &post.ImageURLs, &post.ResharedFromID, &post.PageID,
 			&post.ReachScore, &post.Signature, &post.CreatedAt, &post.DeletedAt,
 			&post.LikeCount, &post.ReplyCount, &post.IsLiked, &post.ViewerEmotion,
 		)
@@ -520,7 +542,7 @@ func (p *Pool) ResharePost(ctx context.Context, params ResharePostParams) (Post,
 		INSERT INTO posts (author_id, content, kind, reshared_from_id)
 		VALUES ($1, $2, 'post', $3)
 		RETURNING id, author_id, parent_id, root_id, kind, content,
-		          note_title, note_cover, note_summary, reshared_from_id, page_id,
+		          note_title, note_cover, note_summary, image_urls, reshared_from_id, page_id,
 		          reach_score, signature, created_at, deleted_at,
 		          0::bigint AS like_count, 0::bigint AS reply_count, false AS is_liked,
 		          NULL::text AS viewer_emotion
@@ -545,7 +567,7 @@ func (p *Pool) CreateNote(ctx context.Context, params CreateNoteParams) (Post, e
 		INSERT INTO posts (author_id, content, kind, note_title, note_cover, note_summary, reach_score)
 		VALUES ($1, $2, 'note', $3, $4, $5, $6)
 		RETURNING id, author_id, parent_id, root_id, kind, content,
-		          note_title, note_cover, note_summary, reshared_from_id, page_id,
+		          note_title, note_cover, note_summary, image_urls, reshared_from_id, page_id,
 		          reach_score, signature, created_at, deleted_at,
 		          0::bigint AS like_count, 0::bigint AS reply_count, false AS is_liked,
 		          NULL::text AS viewer_emotion
@@ -569,7 +591,7 @@ func (p *Pool) ListNotes(ctx context.Context, params ListNotesParams) ([]Post, e
 	}
 	const q = `
 		SELECT p.id, p.author_id, p.parent_id, p.root_id, p.kind, p.content,
-		       p.note_title, p.note_cover, p.note_summary, p.reshared_from_id, p.page_id,
+		       p.note_title, p.note_cover, p.note_summary, p.image_urls, p.reshared_from_id, p.page_id,
 		       p.reach_score, p.signature, p.created_at, p.deleted_at,
 		       (SELECT COUNT(*) FROM post_likes WHERE post_id = p.id) AS like_count,
 		       (SELECT COUNT(*) FROM posts WHERE parent_id = p.id AND deleted_at IS NULL) AS reply_count,
@@ -601,7 +623,7 @@ func (p *Pool) ListPublicPostsByAuthor(ctx context.Context, authorID uuid.UUID, 
 	}
 	const q = `
 		SELECT id, author_id, parent_id, root_id, kind, content,
-		       note_title, note_cover, note_summary, reshared_from_id, page_id,
+		       note_title, note_cover, note_summary, image_urls, reshared_from_id, page_id,
 		       reach_score, signature, created_at, deleted_at,
 		       0::bigint AS like_count, 0::bigint AS reply_count,
 		       false AS is_liked, NULL::text AS viewer_emotion
@@ -883,38 +905,45 @@ func (p *Pool) ListCommentReplies(ctx context.Context, parentID uuid.UUID, limit
 
 type Series struct {
 	ID          uuid.UUID
-	BoardID     uuid.UUID
+	BoardID     *uuid.UUID // nil for page-owned series
+	PageID      *uuid.UUID // nil for board-owned series
 	Title       string
 	Description *string
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }
 
-func (p *Pool) CreateSeries(ctx context.Context, boardID uuid.UUID, title string, description *string) (Series, error) {
-	const q = `
-		INSERT INTO series (board_id, title, description)
-		VALUES ($1, $2, $3)
-		RETURNING id, board_id, title, description, created_at, updated_at
-	`
+func scanSeries(row interface {
+	Scan(dest ...any) error
+}) (Series, error) {
 	var s Series
-	err := p.pool.QueryRow(ctx, q, boardID, title, description).Scan(
-		&s.ID, &s.BoardID, &s.Title, &s.Description, &s.CreatedAt, &s.UpdatedAt,
-	)
+	err := row.Scan(&s.ID, &s.BoardID, &s.PageID, &s.Title, &s.Description, &s.CreatedAt, &s.UpdatedAt)
+	return s, err
+}
+
+const seriesCols = `id, board_id, page_id, title, description, created_at, updated_at`
+
+func (p *Pool) CreateSeries(ctx context.Context, boardID uuid.UUID, title string, description *string) (Series, error) {
+	q := `INSERT INTO series (board_id, title, description) VALUES ($1, $2, $3) RETURNING ` + seriesCols
+	s, err := scanSeries(p.pool.QueryRow(ctx, q, boardID, title, description))
 	if err != nil {
 		return Series{}, fmt.Errorf("create series: %w", err)
 	}
 	return s, nil
 }
 
+func (p *Pool) CreatePageSeries(ctx context.Context, pageID uuid.UUID, title string, description *string) (Series, error) {
+	q := `INSERT INTO series (page_id, title, description) VALUES ($1, $2, $3) RETURNING ` + seriesCols
+	s, err := scanSeries(p.pool.QueryRow(ctx, q, pageID, title, description))
+	if err != nil {
+		return Series{}, fmt.Errorf("create page series: %w", err)
+	}
+	return s, nil
+}
+
 func (p *Pool) GetSeriesByID(ctx context.Context, id uuid.UUID) (Series, error) {
-	const q = `
-		SELECT id, board_id, title, description, created_at, updated_at
-		FROM series WHERE id = $1
-	`
-	var s Series
-	err := p.pool.QueryRow(ctx, q, id).Scan(
-		&s.ID, &s.BoardID, &s.Title, &s.Description, &s.CreatedAt, &s.UpdatedAt,
-	)
+	q := `SELECT ` + seriesCols + ` FROM series WHERE id = $1`
+	s, err := scanSeries(p.pool.QueryRow(ctx, q, id))
 	if err != nil {
 		return Series{}, fmt.Errorf("get series: %w", err)
 	}
@@ -922,11 +951,7 @@ func (p *Pool) GetSeriesByID(ctx context.Context, id uuid.UUID) (Series, error) 
 }
 
 func (p *Pool) ListSeriesByBoard(ctx context.Context, boardID uuid.UUID) ([]Series, error) {
-	const q = `
-		SELECT id, board_id, title, description, created_at, updated_at
-		FROM series WHERE board_id = $1
-		ORDER BY created_at ASC
-	`
+	q := `SELECT ` + seriesCols + ` FROM series WHERE board_id = $1 ORDER BY created_at ASC`
 	rows, err := p.pool.Query(ctx, q, boardID)
 	if err != nil {
 		return nil, fmt.Errorf("list series: %w", err)
@@ -935,8 +960,27 @@ func (p *Pool) ListSeriesByBoard(ctx context.Context, boardID uuid.UUID) ([]Seri
 
 	var out []Series
 	for rows.Next() {
-		var s Series
-		if err := rows.Scan(&s.ID, &s.BoardID, &s.Title, &s.Description, &s.CreatedAt, &s.UpdatedAt); err != nil {
+		s, err := scanSeries(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan series: %w", err)
+		}
+		out = append(out, s)
+	}
+	return out, rows.Err()
+}
+
+func (p *Pool) ListSeriesByPage(ctx context.Context, pageID uuid.UUID) ([]Series, error) {
+	q := `SELECT ` + seriesCols + ` FROM series WHERE page_id = $1 ORDER BY created_at ASC`
+	rows, err := p.pool.Query(ctx, q, pageID)
+	if err != nil {
+		return nil, fmt.Errorf("list page series: %w", err)
+	}
+	defer rows.Close()
+
+	var out []Series
+	for rows.Next() {
+		s, err := scanSeries(rows)
+		if err != nil {
 			return nil, fmt.Errorf("scan series: %w", err)
 		}
 		out = append(out, s)
@@ -945,15 +989,8 @@ func (p *Pool) ListSeriesByBoard(ctx context.Context, boardID uuid.UUID) ([]Seri
 }
 
 func (p *Pool) UpdateSeries(ctx context.Context, id uuid.UUID, title string, description *string) (Series, error) {
-	const q = `
-		UPDATE series SET title = $2, description = $3, updated_at = now()
-		WHERE id = $1
-		RETURNING id, board_id, title, description, created_at, updated_at
-	`
-	var s Series
-	err := p.pool.QueryRow(ctx, q, id, title, description).Scan(
-		&s.ID, &s.BoardID, &s.Title, &s.Description, &s.CreatedAt, &s.UpdatedAt,
-	)
+	q := `UPDATE series SET title = $2, description = $3, updated_at = now() WHERE id = $1 RETURNING ` + seriesCols
+	s, err := scanSeries(p.pool.QueryRow(ctx, q, id, title, description))
 	if err != nil {
 		return Series{}, fmt.Errorf("update series: %w", err)
 	}
@@ -1293,7 +1330,7 @@ func (p *Pool) ListPagePosts(ctx context.Context, params ListPagePostsParams) ([
 	}
 	const q = `
         SELECT p.id, p.author_id, p.parent_id, p.root_id, p.kind, p.content,
-               p.note_title, p.note_cover, p.note_summary, p.reshared_from_id, p.page_id,
+               p.note_title, p.note_cover, p.note_summary, p.image_urls, p.reshared_from_id, p.page_id,
                p.reach_score, p.signature, p.created_at, p.deleted_at,
                (SELECT COUNT(*) FROM post_likes WHERE post_id = p.id) AS like_count,
                (SELECT COUNT(*) FROM posts WHERE parent_id = p.id AND deleted_at IS NULL) AS reply_count,
@@ -1345,6 +1382,23 @@ func (p *Pool) ListPageArticles(ctx context.Context, params ListPageArticlesPara
 	return collectArticles(rows)
 }
 
+// ─── Reports ──────────────────────────────────────────────────────────────────
+
+// CreateReport files a content report. Returns nil if the reporter has
+// already filed the same report (idempotent via ON CONFLICT DO NOTHING).
+func (p *Pool) CreateReport(ctx context.Context, reporterID, postID uuid.UUID, reason, note string) error {
+	const q = `
+		INSERT INTO reports (reporter_id, post_id, reason, note)
+		VALUES ($1, $2, $3::report_reason, $4)
+		ON CONFLICT (reporter_id, post_id, reason) DO NOTHING
+	`
+	_, err := p.pool.Exec(ctx, q, reporterID, postID, reason, note)
+	if err != nil {
+		return fmt.Errorf("create report: %w", err)
+	}
+	return nil
+}
+
 // ListPublicPostsByPage returns non-deleted top-level posts for a page, for AP outbox pagination.
 func (p *Pool) ListPublicPostsByPage(ctx context.Context, pageID uuid.UUID, limit int, before *time.Time) ([]Post, error) {
 	if limit <= 0 || limit > 20 {
@@ -1352,7 +1406,7 @@ func (p *Pool) ListPublicPostsByPage(ctx context.Context, pageID uuid.UUID, limi
 	}
 	const q = `
         SELECT id, author_id, parent_id, root_id, kind, content,
-               note_title, note_cover, note_summary, reshared_from_id, page_id,
+               note_title, note_cover, note_summary, image_urls, reshared_from_id, page_id,
                reach_score, signature, created_at, deleted_at,
                0::bigint AS like_count, 0::bigint AS reply_count,
                false AS is_liked, NULL::text AS viewer_emotion

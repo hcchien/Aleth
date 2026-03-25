@@ -68,6 +68,35 @@ const LABEL: Record<Emotion, string> = {
   angry: "生氣",
 };
 
+// ─── Icons ────────────────────────────────────────────────────────────────────
+
+function IconChatBubble() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
+    </svg>
+  );
+}
+
+function IconToken({ filled }: { filled: boolean }) {
+  // Hexagonal token / vouch icon
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill={filled ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <polygon points="12 2 19 6 19 18 12 22 5 18 5 6" />
+      {filled && <polygon points="12 2 19 6 19 18 12 22 5 18 5 6" fill="currentColor" stroke="none" />}
+      <path d="M9 12l2 2 4-4" strokeWidth="1.8" />
+    </svg>
+  );
+}
+
+function IconShare() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8M16 6l-4-4-4 4M12 2v13" />
+    </svg>
+  );
+}
+
 interface ReactBarProps {
   postId: string;
   initialViewerEmotion?: string | null;
@@ -215,54 +244,19 @@ export function ReactBar({
 
   return (
     <div>
-      {/* Counts summary row */}
-      {(totalCount > 0 || replyCount > 0) && (
-        <div className="mb-2 space-y-1">
-          {/* Friend reactors — progressively loaded */}
-          {friendReactors && friendReactors.length > 0 && (
-            <div className="text-xs text-[#6b7280]">
-              <FriendReactorLine reactors={friendReactors} totalCount={totalCount} />
-            </div>
-          )}
-
-          {/* Aggregate counts row */}
-          <div className="flex items-center justify-between text-xs text-[#6b7280]">
-            {totalCount > 0 ? (
-              <div className="flex items-center gap-1.5">
-                <span className="flex -space-x-1">
-                  {topEmotions.map((e) => (
-                    <span
-                      key={e}
-                      className="inline-flex h-5 w-5 items-center justify-center rounded-full border-2 border-[#0b0d12] bg-[#1e2330] text-[11px]"
-                    >
-                      {EMOJI[e]}
-                    </span>
-                  ))}
-                </span>
-                <span>{totalCount}</span>
-              </div>
-            ) : (
-              <span />
-            )}
-            {replyCount > 0 && (
-              replyHref ? (
-                <Link href={replyHref} className="hover:text-[#9ea4b0] transition-colors">
-                  {replyCount} 則留言
-                </Link>
-              ) : (
-                <span>{replyCount} 則留言</span>
-              )
-            )}
-          </div>
+      {/* Friend reactor line — progressively loaded */}
+      {friendReactors && friendReactors.length > 0 && (
+        <div className="mb-3 text-xs text-[var(--app-text-muted)]">
+          <FriendReactorLine reactors={friendReactors} totalCount={totalCount} />
         </div>
       )}
 
-      {/* Action bar */}
-      <div className="relative border-t border-[#2b2f37]">
+      {/* Action bar — Stitch style: icon + label, no dividers */}
+      <div className="relative flex items-center gap-6">
         {/* Emoji picker popup */}
         {pickerOpen && user && (
           <div
-            className="absolute bottom-full left-0 z-30 mb-1.5 flex items-center gap-0.5 rounded-full border border-[#3a3f4e] bg-[#1a1f2e] px-3 py-2 shadow-2xl"
+            className="absolute bottom-full left-0 z-30 mb-2 flex items-center gap-0.5 rounded-full border border-[var(--app-border)] bg-[var(--app-surface-2)] px-3 py-2 shadow-2xl"
             onMouseEnter={openPicker}
             onMouseLeave={closePicker}
           >
@@ -273,9 +267,7 @@ export function ReactBar({
                 onClick={() => react(emotion)}
                 title={LABEL[emotion]}
                 className={`rounded-full p-1 text-2xl transition-transform duration-100 hover:scale-125 active:scale-110 ${
-                  viewerEmotion === emotion
-                    ? "scale-110 brightness-125"
-                    : ""
+                  viewerEmotion === emotion ? "scale-110 brightness-125" : ""
                 }`}
               >
                 {EMOJI[emotion]}
@@ -284,57 +276,64 @@ export function ReactBar({
           </div>
         )}
 
-        <div className="flex divide-x divide-[#2b2f37]">
-          {/* 讚 */}
+        {/* Comments */}
+        {onReply ? (
           <button
             type="button"
-            disabled={!user || pending}
-            onMouseEnter={() => user && openPicker()}
-            onMouseLeave={closePicker}
-            onClick={() => user && activeEmotion ? react(activeEmotion) : user && react("like")}
-            className={`flex flex-1 items-center justify-center gap-1.5 py-2.5 text-sm font-medium transition-colors hover:bg-[#1e2330] disabled:opacity-40 ${
-              activeEmotion ? "text-blue-400" : "text-[#6b7280] hover:text-[#9ea4b0]"
-            }`}
+            onClick={onReply}
+            className="flex items-center gap-1.5 text-[var(--app-text-muted)] hover:text-[var(--app-accent)] transition-colors"
           >
-            <span>{btnEmoji}</span>
-            <span>{btnLabel}</span>
+            <IconChatBubble />
+            <span className="text-[10px] font-bold tracking-wider uppercase">
+              {replyCount > 0 ? `${replyCount} Comments` : "Comment"}
+            </span>
           </button>
-
-          {/* 留言 */}
-          {onReply ? (
-            <button
-              type="button"
-              onClick={onReply}
-              className="flex flex-1 items-center justify-center gap-1.5 py-2.5 text-sm font-medium text-[#6b7280] transition-colors hover:bg-[#1e2330] hover:text-[#9ea4b0]"
-            >
-              <span>💬</span>
-              <span>留言</span>
-            </button>
-          ) : replyHref ? (
-            <Link
-              href={replyHref}
-              className="flex flex-1 items-center justify-center gap-1.5 py-2.5 text-sm font-medium text-[#6b7280] transition-colors hover:bg-[#1e2330] hover:text-[#9ea4b0]"
-            >
-              <span>💬</span>
-              <span>留言</span>
-            </Link>
-          ) : (
-            <div className="flex flex-1 items-center justify-center gap-1.5 py-2.5 text-sm font-medium text-[#6b7280]">
-              <span>💬</span>
-              <span>留言</span>
-            </div>
-          )}
-
-          {/* 分享 */}
-          <button
-            type="button"
-            onClick={() => setShowShare(true)}
-            className="flex flex-1 items-center justify-center gap-1.5 py-2.5 text-sm font-medium text-[#6b7280] transition-colors hover:bg-[#1e2330] hover:text-[#9ea4b0]"
+        ) : replyHref ? (
+          <Link
+            href={replyHref}
+            className="flex items-center gap-1.5 text-[var(--app-text-muted)] hover:text-[var(--app-accent)] transition-colors"
           >
-            <span>↗</span>
-            <span>分享</span>
-          </button>
-        </div>
+            <IconChatBubble />
+            <span className="text-[10px] font-bold tracking-wider uppercase">
+              {replyCount > 0 ? `${replyCount} Comments` : "Comment"}
+            </span>
+          </Link>
+        ) : (
+          <span className="flex items-center gap-1.5 text-[var(--app-text-muted)]">
+            <IconChatBubble />
+            <span className="text-[10px] font-bold tracking-wider uppercase">
+              {replyCount > 0 ? `${replyCount} Comments` : "Comment"}
+            </span>
+          </span>
+        )}
+
+        {/* Vouches (reactions) */}
+        <button
+          type="button"
+          disabled={!user || pending}
+          onMouseEnter={() => user && openPicker()}
+          onMouseLeave={closePicker}
+          onClick={() => user && (activeEmotion ? react(activeEmotion) : react("like"))}
+          className={`flex items-center gap-1.5 transition-colors disabled:opacity-40 ${
+            activeEmotion
+              ? "text-[var(--app-secondary)]"
+              : "text-[var(--app-text-muted)] hover:text-[var(--app-secondary)]"
+          }`}
+        >
+          <IconToken filled={!!activeEmotion} />
+          <span className="text-[10px] font-bold tracking-wider uppercase">
+            {totalCount > 0 ? `${totalCount} Vouches` : "Vouch"}
+          </span>
+        </button>
+
+        {/* Share — icon only, pushed right */}
+        <button
+          type="button"
+          onClick={() => setShowShare(true)}
+          className="flex items-center gap-1.5 text-[var(--app-text-muted)] hover:text-[var(--app-text-heading)] transition-colors ml-auto"
+        >
+          <IconShare />
+        </button>
       </div>
 
       {/* Share modal */}
@@ -343,33 +342,19 @@ export function ReactBar({
           className="fixed inset-0 z-50 flex items-end justify-center sm:items-center"
           onClick={() => { setShowShare(false); setReshareView(false); setReshareContent(""); }}
         >
-          {/* Backdrop */}
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-
-          {/* Panel */}
           <div
-            className="relative w-full max-w-sm rounded-t-2xl sm:rounded-2xl border border-[#3a3f4e] bg-[#1a1f2e] shadow-2xl"
+            className="relative w-full max-w-sm rounded-t-2xl sm:rounded-2xl border border-[var(--app-border)] bg-[var(--app-surface-2)] shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             {reshareView ? (
-              /* Reshare view */
               <>
-                <div className="flex items-center justify-between border-b border-[#2b2f37] px-5 py-4">
-                  <button
-                    type="button"
-                    onClick={() => setReshareView(false)}
-                    className="text-sm text-[#9ea4b0] hover:text-white"
-                  >
+                <div className="flex items-center justify-between border-b border-[var(--app-border-inner)] px-5 py-4">
+                  <button type="button" onClick={() => setReshareView(false)} className="text-sm text-[var(--app-text-muted)] hover:text-[var(--app-text-heading)]">
                     ← 返回
                   </button>
-                  <h2 className="font-semibold text-[#f0f2f6]">分享到動態</h2>
-                  <button
-                    type="button"
-                    onClick={() => { setShowShare(false); setReshareView(false); setReshareContent(""); }}
-                    className="flex h-8 w-8 items-center justify-center rounded-full text-[#9ea4b0] transition-colors hover:bg-[#252933] hover:text-white"
-                  >
-                    ✕
-                  </button>
+                  <h2 className="font-semibold text-[var(--app-text-heading)]">分享到動態</h2>
+                  <button type="button" onClick={() => { setShowShare(false); setReshareView(false); setReshareContent(""); }} className="flex h-8 w-8 items-center justify-center rounded-full text-[var(--app-text-muted)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-heading)] transition-colors">✕</button>
                 </div>
                 <div className="px-5 py-4 space-y-3">
                   <textarea
@@ -377,83 +362,48 @@ export function ReactBar({
                     onChange={(e) => setReshareContent(e.target.value)}
                     placeholder="留個話吧…"
                     rows={3}
-                    className="w-full resize-none rounded-xl border border-[#3a3f4e] bg-[#0f1117] px-3 py-2.5 text-sm text-[#d5d9e2] placeholder-[#4a5060] focus:outline-none focus:border-[#5a6070]"
+                    className="w-full resize-none rounded-xl border border-[var(--app-border)] bg-[var(--app-bg)] px-3 py-2.5 text-sm text-[var(--app-text)] placeholder:text-[var(--app-text-dim)] focus:outline-none focus:border-[var(--app-accent)]"
                   />
                   {postPreview && (
-                    <div className="rounded-xl border border-[#2b2f37] bg-[#0f1117] px-4 py-3">
-                      <p className="mb-1 text-xs text-[#6b7280]">{postPreview.authorName}</p>
-                      <p className="text-sm text-[#9ea4b0] line-clamp-3">
+                    <div className="rounded-xl border border-[var(--app-border-inner)] bg-[var(--app-bg)] px-4 py-3">
+                      <p className="mb-1 text-xs text-[var(--app-text-muted)]">{postPreview.authorName}</p>
+                      <p className="text-sm text-[var(--app-text-secondary)] line-clamp-3">
                         {postPreview.content.length > 150 ? postPreview.content.slice(0, 150) + "…" : postPreview.content}
                       </p>
                     </div>
                   )}
-                  <button
-                    type="button"
-                    onClick={submitReshare}
-                    disabled={reshareSubmitting || reshared}
-                    className="w-full rounded-xl bg-[#3b5bdb] py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#4263eb] disabled:opacity-60"
-                  >
+                  <button type="button" onClick={submitReshare} disabled={reshareSubmitting || reshared} className="w-full rounded-xl bg-[var(--app-accent)] py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-60">
                     {reshared ? "已分享！" : reshareSubmitting ? "分享中…" : "分享"}
                   </button>
                 </div>
               </>
             ) : (
-              /* Default share options */
               <>
-                <div className="flex items-center justify-between border-b border-[#2b2f37] px-5 py-4">
-                  <h2 className="font-semibold text-[#f0f2f6]">分享</h2>
-                  <button
-                    type="button"
-                    onClick={() => setShowShare(false)}
-                    className="flex h-8 w-8 items-center justify-center rounded-full text-[#9ea4b0] transition-colors hover:bg-[#252933] hover:text-white"
-                  >
-                    ✕
-                  </button>
+                <div className="flex items-center justify-between border-b border-[var(--app-border-inner)] px-5 py-4">
+                  <h2 className="font-semibold text-[var(--app-text-heading)]">分享</h2>
+                  <button type="button" onClick={() => setShowShare(false)} className="flex h-8 w-8 items-center justify-center rounded-full text-[var(--app-text-muted)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-heading)] transition-colors">✕</button>
                 </div>
-
                 <div className="px-5 py-5 space-y-4">
-                  {/* URL display */}
-                  <div className="flex items-center gap-2 rounded-xl border border-[#3a3f4e] bg-[#0f1117] px-3 py-2.5">
-                    <span className="flex-1 truncate text-sm text-[#9ea4b0] font-mono">
+                  <div className="flex items-center gap-2 rounded-xl border border-[var(--app-border)] bg-[var(--app-bg)] px-3 py-2.5">
+                    <span className="flex-1 truncate text-sm text-[var(--app-text-muted)] font-mono">
                       {typeof window !== "undefined" ? getShareUrl() : ""}
                     </span>
                   </div>
-
-                  {/* Options */}
                   <div className="space-y-1">
-                    {/* Copy link */}
-                    <button
-                      type="button"
-                      onClick={copyLink}
-                      className="flex w-full items-center gap-4 rounded-xl px-3 py-3 text-left transition-colors hover:bg-[#252933]"
-                    >
-                      <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[#252933] text-xl">
-                        🔗
-                      </span>
+                    <button type="button" onClick={copyLink} className="flex w-full items-center gap-4 rounded-xl px-3 py-3 text-left hover:bg-[var(--app-hover)] transition-colors">
+                      <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--app-surface-3)] text-xl">🔗</span>
                       <div>
-                        <div className="text-sm font-medium text-[#f0f2f6]">
-                          {copied ? "已複製！" : "複製連結"}
-                        </div>
-                        <div className="text-xs text-[#6b7280]">複製貼文連結</div>
+                        <div className="text-sm font-medium text-[var(--app-text-heading)]">{copied ? "已複製！" : "複製連結"}</div>
+                        <div className="text-xs text-[var(--app-text-muted)]">複製貼文連結</div>
                       </div>
-                      {copied && (
-                        <span className="ml-auto text-sm text-emerald-400">✓</span>
-                      )}
+                      {copied && <span className="ml-auto text-sm text-[var(--app-secondary)]">✓</span>}
                     </button>
-
-                    {/* Reshare to timeline (only when logged in and postPreview available) */}
                     {user && postPreview && (
-                      <button
-                        type="button"
-                        onClick={() => setReshareView(true)}
-                        className="flex w-full items-center gap-4 rounded-xl px-3 py-3 text-left transition-colors hover:bg-[#252933]"
-                      >
-                        <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[#252933] text-xl">
-                          ↗
-                        </span>
+                      <button type="button" onClick={() => setReshareView(true)} className="flex w-full items-center gap-4 rounded-xl px-3 py-3 text-left hover:bg-[var(--app-hover)] transition-colors">
+                        <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--app-surface-3)] text-xl">↗</span>
                         <div>
-                          <div className="text-sm font-medium text-[#f0f2f6]">分享到動態</div>
-                          <div className="text-xs text-[#6b7280]">轉貼到你的個人動態</div>
+                          <div className="text-sm font-medium text-[var(--app-text-heading)]">分享到動態</div>
+                          <div className="text-xs text-[var(--app-text-muted)]">轉貼到你的個人動態</div>
                         </div>
                       </button>
                     )}

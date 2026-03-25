@@ -50,14 +50,17 @@ export function NotificationBell() {
   const [loading, setLoading] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
 
-  // Fetch unread count on mount.
+  // Fetch unread count on mount and every 30 s.
   useEffect(() => {
-    notifFetch("/count")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (data) setUnread(data.unread ?? 0);
-      })
-      .catch(() => {});
+    function fetchCount() {
+      notifFetch("/count")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => { if (data) setUnread(data.unread ?? 0); })
+        .catch(() => {});
+    }
+    fetchCount();
+    const id = setInterval(fetchCount, 30_000);
+    return () => clearInterval(id);
   }, []);
 
   // Close on outside click.
@@ -104,12 +107,14 @@ export function NotificationBell() {
       <button
         type="button"
         onClick={openPanel}
-        className="relative flex items-center justify-center rounded-sm p-1.5 text-lg text-[var(--app-text-nav)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-heading)]"
+        className="relative flex items-center justify-center rounded-full p-1.5 text-[var(--app-text-nav)] hover:bg-[var(--app-hover)] hover:text-[var(--app-text-heading)] transition-colors"
         aria-label="通知"
       >
-        🔔
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0" />
+        </svg>
         {unread > 0 && (
-          <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white">
+          <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white">
             {unread > 99 ? "99+" : unread}
           </span>
         )}

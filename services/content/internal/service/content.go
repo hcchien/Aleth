@@ -16,15 +16,35 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/rs/zerolog/log"
 
+	"github.com/aleth/content/internal/cache"
 	"github.com/aleth/content/internal/db"
 	"github.com/aleth/content/internal/events"
 )
+
+// post cache TTL: 3 minutes. Viewer-specific fields (reactions, emotion)
+// are eventually consistent within this window.
+const postCacheTTL = 3 * time.Minute
+
+// cacher abstracts the cache layer so a fake can be injected in tests.
+type cacher interface {
+	Get(ctx context.Context, key string, dst any) (bool, error)
+	Set(ctx context.Context, key string, src any, ttl time.Duration) error
+	Del(ctx context.Context, keys ...string) error
+}
+
+// nopCache is a no-op cacher used when Redis is not configured.
+type nopCache struct{}
+
+func (nopCache) Get(_ context.Context, _ string, _ any) (bool, error)          { return false, nil }
+func (nopCache) Set(_ context.Context, _ string, _ any, _ time.Duration) error { return nil }
+func (nopCache) Del(_ context.Context, _ ...string) error                       { return nil }
 
 // ContentService provides business logic for posts, articles, and boards.
 type ContentService struct {
 	db         contentStore
 	signingKey []byte
 	publisher  events.Publisher
+	cache      cacher
 }
 
 type contentStore interface {
@@ -43,6 +63,7 @@ type contentStore interface {
 	ListPosts(ctx context.Context, params db.ListPostsParams) ([]db.Post, error)
 	ListPostReplies(ctx context.Context, params db.ListPostRepliesParams) ([]db.Post, error)
 	SoftDeletePost(ctx context.Context, id, authorID uuid.UUID) error
+	AdminSoftDeletePost(ctx context.Context, id uuid.UUID) error
 	CreateNote(ctx context.Context, params db.CreateNoteParams) (db.Post, error)
 	ListNotes(ctx context.Context, params db.ListNotesParams) ([]db.Post, error)
 	ResharePost(ctx context.Context, params db.ResharePostParams) (db.Post, error)
@@ -85,17 +106,21 @@ type contentStore interface {
 
 	// Series
 	CreateSeries(ctx context.Context, boardID uuid.UUID, title string, description *string) (db.Series, error)
+	CreatePageSeries(ctx context.Context, pageID uuid.UUID, title string, description *string) (db.Series, error)
 	GetSeriesByID(ctx context.Context, id uuid.UUID) (db.Series, error)
 	ListSeriesByBoard(ctx context.Context, boardID uuid.UUID) ([]db.Series, error)
+	ListSeriesByPage(ctx context.Context, pageID uuid.UUID) ([]db.Series, error)
 	UpdateSeries(ctx context.Context, id uuid.UUID, title string, description *string) (db.Series, error)
 	DeleteSeries(ctx context.Context, id uuid.UUID) error
 	SetArticleSeries(ctx context.Context, articleID uuid.UUID, seriesID *uuid.UUID) (db.Article, error)
 	ListSeriesArticles(ctx context.Context, seriesID uuid.UUID) ([]db.Article, error)
 	CountSeriesArticles(ctx context.Context, seriesID uuid.UUID) (int32, error)
+	// Reports
+	CreateReport(ctx context.Context, reporterID, postID uuid.UUID, reason, note string) error
 }
 
 func NewContentService(store contentStore) *ContentService {
-	return &ContentService{db: store, publisher: &events.DirectPublisher{}}
+	return &ContentService{db: store, publisher: &events.DirectPublisher{}, cache: nopCache{}}
 }
 
 func (s *ContentService) SetSigningSecret(secret string) {
@@ -106,6 +131,16 @@ func (s *ContentService) SetSigningSecret(secret string) {
 // Call this during startup to switch between DirectPublisher (local) and PubSubPublisher (production).
 func (s *ContentService) SetPublisher(p events.Publisher) {
 	s.publisher = p
+}
+
+// SetCache wires in an optional Redis client for post caching.
+// Pass nil (or don't call) to disable caching.
+func (s *ContentService) SetCache(c *cache.Client) {
+	if c == nil {
+		s.cache = nopCache{}
+		return
+	}
+	s.cache = c
 }
 
 // publishEvent emits an event after a successful write. Failures are logged but
@@ -247,7 +282,7 @@ func (s *ContentService) CountBoardSubscribers(ctx context.Context, boardID uuid
 // ─── Posts ────────────────────────────────────────────────────────────────────
 
 // CreatePost creates a new root-level post.
-func (s *ContentService) CreatePost(ctx context.Context, authorID uuid.UUID, content string, authorTrustLevel int, pageID *uuid.UUID) (db.Post, error) {
+func (s *ContentService) CreatePost(ctx context.Context, authorID uuid.UUID, content string, imageURLs []string, authorTrustLevel int, pageID *uuid.UUID) (db.Post, error) {
 	content = strings.TrimSpace(content)
 	if content == "" {
 		return db.Post{}, fmt.Errorf("content cannot be empty")
@@ -259,6 +294,7 @@ func (s *ContentService) CreatePost(ctx context.Context, authorID uuid.UUID, con
 	post, err := s.db.CreatePost(ctx, db.CreatePostParams{
 		AuthorID:         authorID,
 		Content:          content,
+		ImageURLs:        imageURLs,
 		AuthorTrustLevel: authorTrustLevel,
 		PageID:           pageID,
 	})
@@ -301,6 +337,12 @@ func (s *ContentService) CreateNote(ctx context.Context, authorID uuid.UUID, inp
 	input.Content = strings.TrimSpace(input.Content)
 	if input.Content == "" {
 		return db.Post{}, fmt.Errorf("note content cannot be empty")
+	}
+	if len([]rune(input.NoteTitle)) > 200 {
+		return db.Post{}, fmt.Errorf("title must be 200 characters or fewer")
+	}
+	if len([]rune(input.Content)) > 100000 {
+		return db.Post{}, fmt.Errorf("note content must be 100,000 characters or fewer")
 	}
 
 	note, err := s.db.CreateNote(ctx, db.CreateNoteParams{
@@ -420,8 +462,29 @@ func (s *ContentService) ReplyPost(ctx context.Context, authorID, postID uuid.UU
 	return post, nil
 }
 
-// GetPost returns a post by ID.
+// postCacheKey returns the Redis key for a post, scoped to the viewer.
+// Anonymous viewers share a single key; authenticated viewers get their own
+// so that viewer-specific fields (ViewerEmotion, IsLiked) are correct.
+func postCacheKey(id uuid.UUID, viewerID *uuid.UUID) string {
+	if viewerID == nil {
+		return "post:" + id.String() + ":anon"
+	}
+	return "post:" + id.String() + ":" + viewerID.String()
+}
+
+// GetPost returns a post by ID, served from the Redis cache when available.
 func (s *ContentService) GetPost(ctx context.Context, id uuid.UUID, viewerID *uuid.UUID) (*db.Post, error) {
+	key := postCacheKey(id, viewerID)
+
+	// Cache read.
+	var cached db.Post
+	if hit, err := s.cache.Get(ctx, key, &cached); err != nil {
+		log.Warn().Err(err).Str("key", key).Msg("cache get error — falling through to DB")
+	} else if hit {
+		return &cached, nil
+	}
+
+	// Cache miss — fetch from DB.
 	post, err := s.db.GetPostByID(ctx, id, viewerID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -429,6 +492,14 @@ func (s *ContentService) GetPost(ctx context.Context, id uuid.UUID, viewerID *uu
 		}
 		return nil, fmt.Errorf("get post: %w", err)
 	}
+
+	// Populate cache asynchronously so reads stay fast.
+	go func() {
+		if err := s.cache.Set(context.Background(), key, post, postCacheTTL); err != nil {
+			log.Warn().Err(err).Str("key", key).Msg("cache set error")
+		}
+	}()
+
 	return &post, nil
 }
 
@@ -450,9 +521,31 @@ func (s *ContentService) GetPostReplies(ctx context.Context, parentID uuid.UUID,
 	})
 }
 
+// AdminDeletePost soft-deletes any post without ownership check.
+// callerTrustLevel must be ≥ 5 (moderator/admin).
+func (s *ContentService) AdminDeletePost(ctx context.Context, id uuid.UUID, callerTrustLevel int) error {
+	if callerTrustLevel < 5 {
+		return fmt.Errorf("insufficient trust level")
+	}
+	if err := s.db.AdminSoftDeletePost(ctx, id); err != nil {
+		return err
+	}
+	_ = s.cache.Del(ctx, postCacheKey(id, nil))
+	return nil
+}
+
 // DeletePost soft-deletes a post, verifying ownership.
+// It also evicts the anonymous cache entry so the deletion is immediately
+// visible to unauthenticated readers.
 func (s *ContentService) DeletePost(ctx context.Context, id, authorID uuid.UUID) error {
-	return s.db.SoftDeletePost(ctx, id, authorID)
+	if err := s.db.SoftDeletePost(ctx, id, authorID); err != nil {
+		return err
+	}
+	// Best-effort: evict the anonymous cached copy.
+	if err := s.cache.Del(ctx, postCacheKey(id, nil)); err != nil {
+		log.Warn().Err(err).Str("postID", id.String()).Msg("cache evict error on delete")
+	}
+	return nil
 }
 
 // LikePost records a like from userID on postID.
@@ -465,6 +558,8 @@ func (s *ContentService) LikePost(ctx context.Context, postID, userID uuid.UUID)
 		UserID:  userID.String(),
 		Emotion: "like",
 	})
+	// Evict this viewer's cached post so their updated like state is reflected.
+	_ = s.cache.Del(ctx, postCacheKey(postID, &userID))
 	return nil
 }
 
@@ -480,6 +575,8 @@ func (s *ContentService) ReactPost(ctx context.Context, postID, userID uuid.UUID
 		UserID:  userID.String(),
 		Emotion: emotion,
 	})
+	// Evict this viewer's cached post so their updated emotion is reflected.
+	_ = s.cache.Del(ctx, postCacheKey(postID, &userID))
 	return nil
 }
 
@@ -492,6 +589,7 @@ func (s *ContentService) UnlikePost(ctx context.Context, postID, userID uuid.UUI
 		PostID: postID.String(),
 		UserID: userID.String(),
 	})
+	_ = s.cache.Del(ctx, postCacheKey(postID, &userID))
 	return nil
 }
 
@@ -954,7 +1052,7 @@ func (s *ContentService) CreatePagePost(ctx context.Context, authorID, pageID uu
 	if m == nil {
 		return db.Post{}, fmt.Errorf("not a page member")
 	}
-	return s.CreatePost(ctx, authorID, content, authorTrustLevel, &pageID)
+	return s.CreatePost(ctx, authorID, content, nil, authorTrustLevel, &pageID)
 }
 
 func (s *ContentService) ReplyPagePost(ctx context.Context, authorID, pageID, parentID uuid.UUID, content string, authorTrustLevel int) (db.Post, error) {
@@ -1037,7 +1135,10 @@ func (s *ContentService) requireBoardOwnerBySeries(ctx context.Context, seriesID
 		}
 		return db.Series{}, fmt.Errorf("get series: %w", err)
 	}
-	board, err := s.db.GetBoardByID(ctx, series.BoardID)
+	if series.BoardID == nil {
+		return db.Series{}, fmt.Errorf("not authorized: series belongs to a page")
+	}
+	board, err := s.db.GetBoardByID(ctx, *series.BoardID)
 	if err != nil {
 		return db.Series{}, fmt.Errorf("get board: %w", err)
 	}
@@ -1083,6 +1184,28 @@ func (s *ContentService) ListSeriesByBoard(ctx context.Context, boardID uuid.UUI
 	return s.db.ListSeriesByBoard(ctx, boardID)
 }
 
+// CreatePageSeries creates a new article series for a fan page.
+// callerID must be an admin or editor member of the page.
+func (s *ContentService) CreatePageSeries(ctx context.Context, callerID, pageID uuid.UUID, title string, description *string) (db.Series, error) {
+	m, err := s.db.GetPageMember(ctx, pageID, callerID)
+	if err != nil {
+		return db.Series{}, fmt.Errorf("get page member: %w", err)
+	}
+	if m == nil || (m.Role != "admin" && m.Role != "editor") {
+		return db.Series{}, fmt.Errorf("not authorized: must be page admin or editor")
+	}
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return db.Series{}, fmt.Errorf("series title cannot be empty")
+	}
+	return s.db.CreatePageSeries(ctx, pageID, title, description)
+}
+
+// ListSeriesByPage returns all series for a fan page.
+func (s *ContentService) ListSeriesByPage(ctx context.Context, pageID uuid.UUID) ([]db.Series, error) {
+	return s.db.ListSeriesByPage(ctx, pageID)
+}
+
 // UpdateSeries updates the title and/or description of a series. callerID must own the board.
 func (s *ContentService) UpdateSeries(ctx context.Context, callerID, seriesID uuid.UUID, title string, description *string) (db.Series, error) {
 	if _, err := s.requireBoardOwnerBySeries(ctx, seriesID, callerID); err != nil {
@@ -1118,7 +1241,8 @@ func (s *ContentService) AddArticleToSeries(ctx context.Context, callerID, artic
 		}
 		return db.Article{}, fmt.Errorf("get article: %w", err)
 	}
-	if article.BoardID != series.BoardID {
+	// Allow cross-owner assignment only if both have matching board or page context
+	if series.BoardID != nil && article.BoardID != *series.BoardID {
 		return db.Article{}, fmt.Errorf("article and series must belong to the same board")
 	}
 	return s.db.SetArticleSeries(ctx, articleID, &seriesID)
@@ -1335,4 +1459,20 @@ func articleSigningContent(article db.Article) string {
 		body = *article.ContentMd
 	}
 	return article.Title + "\n" + body
+}
+
+// validReportReasons is the set of reasons accepted by the database enum.
+var validReportReasons = map[string]bool{
+	"spam": true, "harassment": true, "hate_speech": true,
+	"misinformation": true, "illegal_content": true, "other": true,
+}
+
+// ReportPost files a report against a post from the given reporter.
+// The same reporter can report the same post multiple times with different
+// reasons; duplicate (reporter, post, reason) tuples are silently ignored.
+func (s *ContentService) ReportPost(ctx context.Context, reporterID, postID uuid.UUID, reason, note string) error {
+	if !validReportReasons[reason] {
+		return fmt.Errorf("invalid report reason: %s", reason)
+	}
+	return s.db.CreateReport(ctx, reporterID, postID, reason, note)
 }

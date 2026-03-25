@@ -13,7 +13,7 @@ const LOGIN_MUTATION = `
     login(input: $input) {
       accessToken
       refreshToken
-      user { id username displayName email trustLevel apEnabled }
+      user { id username displayName email emailVerified trustLevel apEnabled }
     }
   }
 `;
@@ -23,7 +23,7 @@ const LOGIN_WITH_GOOGLE_MUTATION = `
     loginWithGoogle(idToken: $idToken) {
       accessToken
       refreshToken
-      user { id username displayName email trustLevel apEnabled }
+      user { id username displayName email emailVerified trustLevel apEnabled }
     }
   }
 `;
@@ -33,7 +33,7 @@ const LOGIN_WITH_FACEBOOK_MUTATION = `
     loginWithFacebook(accessToken: $accessToken) {
       accessToken
       refreshToken
-      user { id username displayName email trustLevel apEnabled }
+      user { id username displayName email emailVerified trustLevel apEnabled }
     }
   }
 `;
@@ -55,7 +55,7 @@ const FINISH_PASSKEY_LOGIN_MUTATION = `
     finishPasskeyLogin(input: $input) {
       accessToken
       refreshToken
-      user { id username displayName email trustLevel apEnabled }
+      user { id username displayName email emailVerified trustLevel apEnabled }
     }
   }
 `;
@@ -69,6 +69,7 @@ interface AuthPayload {
     displayName: string | null;
     email: string | null;
     trustLevel: number;
+    emailVerified: boolean;
     apEnabled: boolean;
   };
 }
@@ -107,6 +108,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [oauthLoading, setOauthLoading] = useState<"google" | "facebook" | "passkey" | null>(null);
   const [passkeyUsername, setPasskeyUsername] = useState("");
+  const [showSocialOptions, setShowSocialOptions] = useState(false);
   const googleClientID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ?? "";
   const facebookAppID = process.env.NEXT_PUBLIC_FACEBOOK_APP_ID ?? "";
 
@@ -299,6 +301,8 @@ export default function LoginPage() {
         }}
       />
       <h1 className="text-2xl font-semibold mb-6">{t("title")}</h1>
+
+      {/* Passkey — primary sign-in method */}
       <div className="flex flex-col gap-2 mb-4">
         <input
           type="text"
@@ -315,22 +319,37 @@ export default function LoginPage() {
         >
           {oauthLoading === "passkey" ? t("signingInWithPasskey") : t("continueWithPasskey")}
         </button>
+      </div>
+
+      {/* Social login — collapsed by default, shown on demand */}
+      <div className="mb-4">
         <button
           type="button"
-          onClick={handleGoogleLogin}
-          disabled={oauthLoading !== null}
-          className="border border-gray-300 rounded-md px-4 py-2 text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
+          onClick={() => setShowSocialOptions((v) => !v)}
+          className="text-xs text-gray-400 hover:text-gray-600 underline-offset-2 hover:underline"
         >
-          {oauthLoading === "google" ? t("signingInWithGoogle") : t("continueWithGoogle")}
+          {showSocialOptions ? t("hideSocialOptions") : t("showSocialOptions")}
         </button>
-        <button
-          type="button"
-          onClick={handleFacebookLogin}
-          disabled={oauthLoading !== null}
-          className="border border-gray-300 rounded-md px-4 py-2 text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
-        >
-          {oauthLoading === "facebook" ? t("signingInWithFacebook") : t("continueWithFacebook")}
-        </button>
+        {showSocialOptions && (
+          <div className="mt-2 flex flex-col gap-2">
+            <button
+              type="button"
+              onClick={handleGoogleLogin}
+              disabled={oauthLoading !== null}
+              className="border border-gray-200 rounded-md px-4 py-2 text-sm text-gray-500 hover:bg-gray-50 disabled:opacity-50"
+            >
+              {oauthLoading === "google" ? t("signingInWithGoogle") : t("continueWithGoogle")}
+            </button>
+            <button
+              type="button"
+              onClick={handleFacebookLogin}
+              disabled={oauthLoading !== null}
+              className="border border-gray-200 rounded-md px-4 py-2 text-sm text-gray-500 hover:bg-gray-50 disabled:opacity-50"
+            >
+              {oauthLoading === "facebook" ? t("signingInWithFacebook") : t("continueWithFacebook")}
+            </button>
+          </div>
+        )}
       </div>
       <div className="relative my-4">
         <div className="absolute inset-0 flex items-center">

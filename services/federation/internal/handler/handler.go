@@ -4,13 +4,17 @@ package handler
 import (
 	"bytes"
 	"context"
+	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -27,6 +31,119 @@ import (
 
 // remoteHTTPClient is used for all outbound requests to remote AP servers.
 var remoteHTTPClient = &http.Client{Timeout: 15 * time.Second}
+
+// pubKeyCache caches remote actor public keys with a 1-hour TTL and a 10,000-entry cap.
+var pubKeyCache = newPubKeyCache(time.Hour, 10_000)
+
+type pubKeyCacheEntry struct {
+	key       *rsa.PublicKey
+	fetchedAt time.Time
+}
+
+type ttlPubKeyCache struct {
+	mu      sync.RWMutex
+	entries map[string]pubKeyCacheEntry
+	ttl     time.Duration
+	maxSize int
+}
+
+func newPubKeyCache(ttl time.Duration, maxSize int) *ttlPubKeyCache {
+	return &ttlPubKeyCache{
+		entries: make(map[string]pubKeyCacheEntry),
+		ttl:     ttl,
+		maxSize: maxSize,
+	}
+}
+
+func (c *ttlPubKeyCache) get(keyID string) (*rsa.PublicKey, bool) {
+	c.mu.RLock()
+	entry, ok := c.entries[keyID]
+	c.mu.RUnlock()
+	if !ok {
+		return nil, false
+	}
+	if time.Since(entry.fetchedAt) > c.ttl {
+		c.mu.Lock()
+		delete(c.entries, keyID)
+		c.mu.Unlock()
+		return nil, false
+	}
+	return entry.key, true
+}
+
+func (c *ttlPubKeyCache) set(keyID string, key *rsa.PublicKey) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	// Evict oldest entries if at capacity.
+	if len(c.entries) >= c.maxSize {
+		// Simple eviction: delete a random entry.
+		for k := range c.entries {
+			delete(c.entries, k)
+			break
+		}
+	}
+	c.entries[keyID] = pubKeyCacheEntry{key: key, fetchedAt: time.Now()}
+}
+
+// fetchRemotePublicKey fetches and caches the RSA public key for the given
+// ActivityPub keyId URL (e.g. "https://mastodon.social/users/alice#main-key").
+func fetchRemotePublicKey(ctx context.Context, keyID string) (*rsa.PublicKey, error) {
+	if v, ok := pubKeyCache.get(keyID); ok {
+		return v, nil
+	}
+
+	// The keyId is typically the actor URL with a "#main-key" fragment.
+	// Fetching it (with AP content type) returns the actor document which
+	// contains publicKey.publicKeyPem.
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, keyID, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/activity+json, application/ld+json")
+
+	resp, err := remoteHTTPClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("fetch key document: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("fetch key document: HTTP %d", resp.StatusCode)
+	}
+
+	var doc map[string]any
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 256*1024)).Decode(&doc); err != nil {
+		return nil, fmt.Errorf("decode key document: %w", err)
+	}
+
+	// The document may be the actor itself (containing publicKey) or a key
+	// document directly. Handle both.
+	pemStr := ""
+	if pk, ok := doc["publicKey"].(map[string]any); ok {
+		pemStr, _ = pk["publicKeyPem"].(string)
+	} else if p, ok := doc["publicKeyPem"].(string); ok {
+		pemStr = p
+	}
+	if pemStr == "" {
+		return nil, fmt.Errorf("no publicKeyPem found in key document for %s", keyID)
+	}
+
+	block, _ := pem.Decode([]byte(pemStr))
+	if block == nil {
+		return nil, fmt.Errorf("failed to decode PEM block for %s", keyID)
+	}
+
+	pub, err := x509.ParsePKIXPublicKey(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("parse public key: %w", err)
+	}
+	rsaPub, ok := pub.(*rsa.PublicKey)
+	if !ok {
+		return nil, fmt.Errorf("key for %s is not RSA", keyID)
+	}
+
+	pubKeyCache.set(keyID, rsaPub)
+	return rsaPub, nil
+}
 
 // Handler holds all dependencies for the federation HTTP handlers.
 type Handler struct {
@@ -234,6 +351,23 @@ func (h *Handler) ServeInbox(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, "read body failed", http.StatusBadRequest)
 		return
+	}
+
+	// Verify HTTP Signature before trusting any activity content.
+	// Skip in dev/test mode (FEDERATION_SKIP_SIG_VERIFY=true).
+	if !h.cfg.SkipSigVerify {
+		// Restore the body so downstream code can re-read it if needed, then
+		// set the Digest header so the verifier can include it in the signing
+		// string check (the body was already read above).
+		r.Body = io.NopCloser(bytes.NewReader(body))
+
+		if err := httpsig.VerifyRequest(r, func(keyID string) (*rsa.PublicKey, error) {
+			return fetchRemotePublicKey(r.Context(), keyID)
+		}); err != nil {
+			log.Warn().Err(err).Str("username", username).Msg("inbox: HTTP signature verification failed")
+			http.Error(w, "invalid HTTP signature", http.StatusUnauthorized)
+			return
+		}
 	}
 
 	var activity map[string]any

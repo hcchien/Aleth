@@ -293,7 +293,12 @@ func (f *fakeContentStore) ListPublicPostsByPage(ctx context.Context, pageID uui
 
 // Series stubs
 func (f *fakeContentStore) CreateSeries(ctx context.Context, boardID uuid.UUID, title string, description *string) (db.Series, error) {
-	s := db.Series{ID: uuid.New(), BoardID: boardID, Title: title, Description: description}
+	s := db.Series{ID: uuid.New(), BoardID: &boardID, Title: title, Description: description}
+	f.series = append(f.series, s)
+	return s, nil
+}
+func (f *fakeContentStore) CreatePageSeries(ctx context.Context, pageID uuid.UUID, title string, description *string) (db.Series, error) {
+	s := db.Series{ID: uuid.New(), PageID: &pageID, Title: title, Description: description}
 	f.series = append(f.series, s)
 	return s, nil
 }
@@ -308,7 +313,16 @@ func (f *fakeContentStore) GetSeriesByID(ctx context.Context, id uuid.UUID) (db.
 func (f *fakeContentStore) ListSeriesByBoard(ctx context.Context, boardID uuid.UUID) ([]db.Series, error) {
 	var out []db.Series
 	for _, s := range f.series {
-		if s.BoardID == boardID {
+		if s.BoardID != nil && *s.BoardID == boardID {
+			out = append(out, s)
+		}
+	}
+	return out, nil
+}
+func (f *fakeContentStore) ListSeriesByPage(ctx context.Context, pageID uuid.UUID) ([]db.Series, error) {
+	var out []db.Series
+	for _, s := range f.series {
+		if s.PageID != nil && *s.PageID == pageID {
 			out = append(out, s)
 		}
 	}
@@ -345,6 +359,10 @@ func (f *fakeContentStore) ListSeriesArticles(ctx context.Context, seriesID uuid
 func (f *fakeContentStore) CountSeriesArticles(ctx context.Context, seriesID uuid.UUID) (int32, error) {
 	return 0, nil
 }
+func (f *fakeContentStore) CreateReport(_ context.Context, _, _ uuid.UUID, _, _ string) error {
+	return nil
+}
+func (f *fakeContentStore) AdminSoftDeletePost(_ context.Context, _ uuid.UUID) error { return nil }
 
 func TestBoardAndPostFlows(t *testing.T) {
 	st := newFakeContentStore()
@@ -367,7 +385,7 @@ func TestBoardAndPostFlows(t *testing.T) {
 		t.Fatalf("GetBoardByID error: %v", err)
 	}
 
-	if _, err := s.CreatePost(ctx, owner, "  hello ", 0, nil); err != nil {
+	if _, err := s.CreatePost(ctx, owner, "  hello ", nil, 0, nil); err != nil {
 		t.Fatalf("CreatePost error: %v", err)
 	}
 	if _, err := s.ListPosts(ctx, nil, 20, nil); err != nil {
@@ -418,10 +436,10 @@ func TestValidationAndReplyBranches(t *testing.T) {
 	ctx := context.Background()
 	uid := uuid.New()
 
-	if _, err := s.CreatePost(ctx, uid, "   ", 0, nil); err == nil {
+	if _, err := s.CreatePost(ctx, uid, "   ", nil, 0, nil); err == nil {
 		t.Fatalf("expected empty content error")
 	}
-	if _, err := s.CreatePost(ctx, uid, strings.Repeat("a", 501), 0, nil); err == nil {
+	if _, err := s.CreatePost(ctx, uid, strings.Repeat("a", 501), nil, 0, nil); err == nil {
 		t.Fatalf("expected max length error")
 	}
 
@@ -580,7 +598,7 @@ func TestContentSigningAndVerification(t *testing.T) {
 	s.SetSigningSecret("signing-secret")
 
 	author := uuid.New()
-	post, err := s.CreatePost(context.Background(), author, "hello signed world", 0, nil)
+	post, err := s.CreatePost(context.Background(), author, "hello signed world", nil, 0, nil)
 	if err != nil {
 		t.Fatalf("CreatePost error: %v", err)
 	}
@@ -599,7 +617,7 @@ func TestContentSigningFailsAfterTamper(t *testing.T) {
 	s.SetSigningSecret("signing-secret")
 
 	author := uuid.New()
-	post, err := s.CreatePost(context.Background(), author, "original", 0, nil)
+	post, err := s.CreatePost(context.Background(), author, "original", nil, 0, nil)
 	if err != nil {
 		t.Fatalf("CreatePost error: %v", err)
 	}
@@ -712,7 +730,7 @@ func TestSignatureNonFatal(t *testing.T) {
 		return errors.New("db unavailable")
 	}
 	// CreatePost should succeed even if signature update fails
-	post, err := s.CreatePost(context.Background(), uuid.New(), "content", 0, nil)
+	post, err := s.CreatePost(context.Background(), uuid.New(), "content", nil, 0, nil)
 	if err != nil {
 		t.Fatalf("expected no error on non-fatal signature failure, got %v", err)
 	}
@@ -1125,7 +1143,7 @@ func TestCreatePost_PublishesPostCreatedEvent(t *testing.T) {
 	s, pub := newServiceWithCapture(st)
 	authorID := uuid.New()
 
-	post, err := s.CreatePost(context.Background(), authorID, "hello world", 0, nil)
+	post, err := s.CreatePost(context.Background(), authorID, "hello world", nil, 0, nil)
 	if err != nil {
 		t.Fatalf("CreatePost error: %v", err)
 	}
@@ -1426,7 +1444,7 @@ func TestCreatePost_DBError_NoEventPublished(t *testing.T) {
 	}
 
 	s, pub := newServiceWithCapture(st)
-	_, err := s.CreatePost(context.Background(), uuid.New(), "hello", 0, nil)
+	_, err := s.CreatePost(context.Background(), uuid.New(), "hello", nil, 0, nil)
 	if err == nil {
 		t.Fatal("expected error from DB")
 	}
@@ -1484,8 +1502,8 @@ func TestCreateSeries_ValidTitle(t *testing.T) {
 	if series.Title != "My Series" {
 		t.Errorf("got title %q, want %q", series.Title, "My Series")
 	}
-	if series.BoardID != boardID {
-		t.Errorf("got board_id %s, want %s", series.BoardID, boardID)
+	if series.BoardID == nil || *series.BoardID != boardID {
+		t.Errorf("got board_id %v, want %s", series.BoardID, boardID)
 	}
 }
 
@@ -1735,7 +1753,7 @@ func TestListSeriesByBoard_OnlyReturnsBoardSeries(t *testing.T) {
 		t.Fatalf("CreateSeries: %v", err)
 	}
 	// Manually inject a series for otherBoard into the fake store.
-	otherSeries := db.Series{ID: uuid.New(), BoardID: otherBoard, Title: "Other"}
+	otherSeries := db.Series{ID: uuid.New(), BoardID: &otherBoard, Title: "Other"}
 	st.series = append(st.series, otherSeries)
 
 	list, err := svc.ListSeriesByBoard(ctx, boardID)
@@ -1743,7 +1761,7 @@ func TestListSeriesByBoard_OnlyReturnsBoardSeries(t *testing.T) {
 		t.Fatalf("ListSeriesByBoard: %v", err)
 	}
 	for _, s := range list {
-		if s.BoardID == otherBoard {
+		if s.BoardID != nil && *s.BoardID == otherBoard {
 			t.Error("series from another board leaked into result")
 		}
 	}

@@ -24,6 +24,7 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/aleth/content/graph"
+	"github.com/aleth/content/internal/cache"
 	"github.com/aleth/content/internal/config"
 	"github.com/aleth/content/internal/db"
 	"github.com/aleth/content/internal/events"
@@ -60,10 +61,23 @@ func main() {
 		log.Info().Msg("using DirectPublisher (local mode) — register handlers to receive events in-process")
 	}
 
+	// ─── Redis cache (optional) ───────────────────────────────────────────────
+	redisClient, err := cache.New(ctx, cfg.RedisURL)
+	if err != nil {
+		log.Fatal().Err(err).Msg("connect to Redis")
+	}
+	if redisClient != nil {
+		defer redisClient.Close()
+		log.Info().Str("url", cfg.RedisURL).Msg("post cache enabled")
+	} else {
+		log.Info().Msg("post cache disabled (CONTENT_REDIS_URL not set)")
+	}
+
 	// ─── Services ─────────────────────────────────────────────────────────────
 	contentSvc := service.NewContentService(pool)
 	contentSvc.SetSigningSecret(cfg.SigningSecret)
 	contentSvc.SetPublisher(publisher)
+	contentSvc.SetCache(redisClient)
 
 	// ─── GraphQL ──────────────────────────────────────────────────────────────
 	var gqlSchema *graphql.Schema

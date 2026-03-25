@@ -21,6 +21,7 @@ import (
 	"github.com/aleth/auth/graph"
 	"github.com/aleth/auth/internal/config"
 	"github.com/aleth/auth/internal/db"
+	"github.com/aleth/auth/internal/limiter"
 	"github.com/aleth/auth/internal/service"
 )
 
@@ -47,6 +48,21 @@ func main() {
 	authSvc := service.NewAuthService(pool, tokenSvc, cfg.GoogleClientID)
 	authSvc.SetFacebookAppID(cfg.FacebookAppID)
 	authSvc.SetPasskeyRPID(cfg.PasskeyRPID)
+	authSvc.SetPasskeyRPOrigin(cfg.PasskeyRPOrigin)
+	authSvc.SetOAuthConfig(service.OAuthConfig{
+		TwitterClientID:      cfg.TwitterClientID,
+		TwitterClientSecret:  cfg.TwitterClientSecret,
+		FacebookClientID:     cfg.FacebookAppID, // reuse existing App ID for server-side flow
+		FacebookClientSecret: cfg.FacebookClientSecret,
+		InstagramClientID:    cfg.InstagramClientID,
+		InstagramClientSecret: cfg.InstagramClientSecret,
+		LinkedInClientID:     cfg.LinkedInClientID,
+		LinkedInClientSecret: cfg.LinkedInClientSecret,
+		CallbackBase:         cfg.OAuthCallbackBase,
+		FrontendURL:          cfg.FrontendURL,
+	})
+	authSvc.SetSMTPConfig(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUser, cfg.SMTPPassword, cfg.SMTPFrom)
+	authSvc.SetLimiter(limiter.New(context.Background(), cfg.RedisURL))
 
 	// ─── GraphQL ──────────────────────────────────────────────────────────────
 	gqlSchema := graph.NewSchema(authSvc, tokenSvc)
@@ -73,6 +89,9 @@ func main() {
 	// Internal endpoints for gateway user enrichment.
 	r.Post("/internal/users", usersHandler(authSvc))
 	r.Get("/internal/user", userByUsernameHandler(authSvc))
+
+	// Social OAuth reputation callbacks — called by providers after user authorises.
+	r.Get("/oauth/{provider}/callback", oauthCallbackHandler(authSvc))
 
 	// ─── HTTP server ──────────────────────────────────────────────────────────
 	srv := &http.Server{
@@ -205,6 +224,32 @@ func userByUsernameHandler(svc userLookupService) http.HandlerFunc {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resp)
+	}
+}
+
+// oauthCallbackHandler handles GET /oauth/{provider}/callback for social OAuth flows.
+// It validates the state, exchanges the code, records the reputation stamp, then
+// redirects the browser to the frontend settings page with a ?verified= or ?error= param.
+func oauthCallbackHandler(authSvc *service.AuthService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		provider := chi.URLParam(r, "provider")
+		code := r.URL.Query().Get("code")
+		state := r.URL.Query().Get("state")
+
+		if code == "" || state == "" {
+			// Provider may have sent an error (user denied).
+			errParam := r.URL.Query().Get("error")
+			if errParam == "" {
+				errParam = "access_denied"
+			}
+			http.Redirect(w, r,
+				authSvc.FrontendURL()+"/settings/reputation?error="+errParam,
+				http.StatusFound)
+			return
+		}
+
+		redirectURL := authSvc.CompleteSocialOAuth(r.Context(), provider, code, state)
+		http.Redirect(w, r, redirectURL, http.StatusFound)
 	}
 }
 

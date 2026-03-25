@@ -181,8 +181,8 @@ export default async function PostPage({ params }: PageProps) {
             <PostReplyCard key={reply.id} reply={reply} />
           ))}
           {replies.length === 0 && (
-            <div className="rounded-xl border border-[#2a2e38] bg-[#0f1117] px-6 py-8 text-center text-sm text-[#7a8090]">
-              尚無回覆。
+            <div className="rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] px-6 py-8 text-center text-sm text-[var(--app-text-muted)]">
+              No replies yet.
             </div>
           )}
         </div>

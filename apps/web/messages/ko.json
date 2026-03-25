@@ -42,6 +42,8 @@
     "signingInWithGoogle": "Google로 로그인 중…",
     "continueWithFacebook": "Facebook으로 계속",
     "signingInWithFacebook": "Facebook으로 로그인 중…",
+    "showSocialOptions": "Google 또는 Facebook으로 로그인",
+    "hideSocialOptions": "소셜 로그인 옵션 숨기기",
     "or": "또는",
     "email": "이메일",
     "password": "비밀번호",
@@ -86,7 +88,18 @@
     "passkeyFailed": "패스키 설정에 실패했습니다",
     "pleaseSignIn": "먼저 로그인해 주세요",
     "passkeyNotSupported": "이 브라우저는 패스키/WebAuthn을 지원하지 않습니다",
-    "passkeyCancelled": "패스키 등록이 취소되었습니다"
+    "passkeyCancelled": "패스키 등록이 취소되었습니다",
+    "passkeyReadyHint": "이제 패스키로 로그인할 수 있습니다. 소셜 로그인은 더 이상 필요하지 않습니다.",
+    "connectedAccounts": "연결된 로그인 방법",
+    "disconnectOAuth": "연결 해제",
+    "disconnecting": "해제 중…",
+    "disconnectConfirm": "{provider} 연결을 해제하시겠습니까?",
+    "disconnectSuccess": "{provider} 연결이 해제되었습니다.",
+    "disconnectFailed": "연결 해제에 실패했습니다. 다른 로그인 방법이 있는지 확인하세요.",
+    "loginMethodPasskey": "패스키",
+    "loginMethodGoogle": "Google",
+    "loginMethodFacebook": "Facebook",
+    "loginMethodPassword": "이메일 및 비밀번호"
   },
   "boardPolicy": {
     "articlePolicy": "게시글 작성 정책",

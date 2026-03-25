@@ -11,7 +11,7 @@ const REGISTER_MUTATION = `
     register(input: $input) {
       accessToken
       refreshToken
-      user { id username displayName email trustLevel apEnabled }
+      user { id username displayName email emailVerified trustLevel apEnabled }
     }
   }
 `;
@@ -25,6 +25,7 @@ interface AuthPayload {
     displayName: string | null;
     email: string | null;
     trustLevel: number;
+    emailVerified: boolean;
     apEnabled: boolean;
   };
 }
@@ -52,7 +53,8 @@ export default function RegisterPage() {
         data.register.refreshToken,
         data.register.user
       );
-      router.push("/");
+      // Send to the "check your email" screen — verification link was just sent.
+      router.push("/verify-email");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Registration failed");
     } finally {

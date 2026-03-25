@@ -21,6 +21,7 @@ import (
 	"github.com/aleth/auth/graph"
 	"github.com/aleth/auth/internal/config"
 	"github.com/aleth/auth/internal/db"
+	"github.com/aleth/auth/internal/limiter"
 	"github.com/aleth/auth/internal/service"
 )
 
@@ -47,6 +48,7 @@ func main() {
 	authSvc := service.NewAuthService(pool, tokenSvc, cfg.GoogleClientID)
 	authSvc.SetFacebookAppID(cfg.FacebookAppID)
 	authSvc.SetPasskeyRPID(cfg.PasskeyRPID)
+	authSvc.SetPasskeyRPOrigin(cfg.PasskeyRPOrigin)
 	authSvc.SetOAuthConfig(service.OAuthConfig{
 		TwitterClientID:      cfg.TwitterClientID,
 		TwitterClientSecret:  cfg.TwitterClientSecret,
@@ -59,6 +61,8 @@ func main() {
 		CallbackBase:         cfg.OAuthCallbackBase,
 		FrontendURL:          cfg.FrontendURL,
 	})
+	authSvc.SetSMTPConfig(cfg.SMTPHost, cfg.SMTPPort, cfg.SMTPUser, cfg.SMTPPassword, cfg.SMTPFrom)
+	authSvc.SetLimiter(limiter.New(context.Background(), cfg.RedisURL))
 
 	// ─── GraphQL ──────────────────────────────────────────────────────────────
 	gqlSchema := graph.NewSchema(authSvc, tokenSvc)

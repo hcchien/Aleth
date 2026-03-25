@@ -21,6 +21,7 @@ interface User {
   username: string;
   displayName: string | null;
   email: string | null;
+  emailVerified: boolean;
   did?: string;
   trustLevel: number;
   apEnabled: boolean;
@@ -47,6 +48,7 @@ const ME_QUERY = `
       username
       displayName
       email
+      emailVerified
       did
       trustLevel
       apEnabled

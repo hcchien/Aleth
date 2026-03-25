@@ -424,6 +424,41 @@ func (r *Resolver) DeletePost(ctx context.Context, args struct{ ID graphql.ID })
 	return true, nil
 }
 
+func (r *Resolver) AdminDeletePost(ctx context.Context, args struct{ ID graphql.ID }) (bool, error) {
+	claims, ok := ClaimsFromContext(ctx)
+	if !ok {
+		return false, fmt.Errorf("not authenticated")
+	}
+	postID, err := uuid.Parse(string(args.ID))
+	if err != nil {
+		return false, fmt.Errorf("invalid post id")
+	}
+	if err := r.svc.AdminDeletePost(ctx, postID, int(claims.TrustLevel)); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (r *Resolver) ReportPost(ctx context.Context, args struct {
+	PostId graphql.ID
+	Reason string
+	Note   string
+}) (bool, error) {
+	claims, ok := ClaimsFromContext(ctx)
+	if !ok {
+		return false, fmt.Errorf("not authenticated")
+	}
+	postID, err := uuid.Parse(string(args.PostId))
+	if err != nil {
+		return false, fmt.Errorf("invalid post id")
+	}
+	reporterID, _ := uuid.Parse(claims.UserID)
+	if err := r.svc.ReportPost(ctx, reporterID, postID, args.Reason, args.Note); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 func (r *Resolver) LikePost(ctx context.Context, args struct{ PostId graphql.ID }) (bool, error) {
 	claims, ok := ClaimsFromContext(ctx)
 	if !ok {

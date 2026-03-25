@@ -26,6 +26,10 @@ type Config struct {
 	PubSubEnabled   bool
 	PubSubProjectID string
 	PubSubTopic     string
+
+	// RedisURL enables the post-level cache (e.g. "redis://localhost:6379/0").
+	// Optional — leave empty to disable caching (useful in development).
+	RedisURL string
 }
 
 func Load() Config {
@@ -45,6 +49,7 @@ func Load() Config {
 		PubSubEnabled:     viper.GetBool("PUBSUB_ENABLED"),
 		PubSubProjectID:   viper.GetString("PUBSUB_PROJECT_ID"),
 		PubSubTopic:       viper.GetString("PUBSUB_TOPIC"),
+		RedisURL:          viper.GetString("REDIS_URL"),
 	}
 
 	if cfg.DatabaseURL == "" {

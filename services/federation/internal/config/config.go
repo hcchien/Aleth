@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/hex"
+	"strings"
 
 	"github.com/rs/zerolog/log"
 	"github.com/spf13/viper"
@@ -60,7 +61,7 @@ func Load() Config {
 		log.Fatal().Msg("FEDERATION_PLATFORM_KEY_SECRET must be a 64-character hex string (32 bytes)")
 	}
 
-	return Config{
+	cfg := Config{
 		Port:              viper.GetString("PORT"),
 		DatabaseURL:       dbURL,
 		Domain:            domain,
@@ -69,4 +70,16 @@ func Load() Config {
 		PlatformKeySecret: keyBytes,
 		SkipSigVerify:     viper.GetBool("SKIP_SIG_VERIFY"),
 	}
+
+	if cfg.SkipSigVerify && !isLocalDomain(cfg.Domain) {
+		log.Fatal().Msg("FEDERATION_SKIP_SIG_VERIFY must not be set in production (domain: " + cfg.Domain + ")")
+	}
+
+	return cfg
+}
+
+func isLocalDomain(domain string) bool {
+	return strings.HasPrefix(domain, "localhost") ||
+		strings.HasPrefix(domain, "127.0.0.1") ||
+		strings.HasPrefix(domain, "0.0.0.0")
 }

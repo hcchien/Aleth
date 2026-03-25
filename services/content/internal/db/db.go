@@ -427,6 +427,22 @@ func (p *Pool) SoftDeletePost(ctx context.Context, id, authorID uuid.UUID) error
 	return nil
 }
 
+// AdminSoftDeletePost soft-deletes a post regardless of authorship.
+// The caller must verify moderator privileges before calling this.
+func (p *Pool) AdminSoftDeletePost(ctx context.Context, id uuid.UUID) error {
+	tag, err := p.pool.Exec(ctx,
+		`UPDATE posts SET deleted_at = now() WHERE id = $1 AND deleted_at IS NULL`,
+		id,
+	)
+	if err != nil {
+		return fmt.Errorf("admin delete post: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("post not found or already deleted")
+	}
+	return nil
+}
+
 func (p *Pool) LikePost(ctx context.Context, postID, userID uuid.UUID) error {
 	return p.ReactPost(ctx, postID, userID, "like", nil)
 }
@@ -1364,6 +1380,23 @@ func (p *Pool) ListPageArticles(ctx context.Context, params ListPageArticlesPara
 	}
 	defer rows.Close()
 	return collectArticles(rows)
+}
+
+// ─── Reports ──────────────────────────────────────────────────────────────────
+
+// CreateReport files a content report. Returns nil if the reporter has
+// already filed the same report (idempotent via ON CONFLICT DO NOTHING).
+func (p *Pool) CreateReport(ctx context.Context, reporterID, postID uuid.UUID, reason, note string) error {
+	const q = `
+		INSERT INTO reports (reporter_id, post_id, reason, note)
+		VALUES ($1, $2, $3::report_reason, $4)
+		ON CONFLICT (reporter_id, post_id, reason) DO NOTHING
+	`
+	_, err := p.pool.Exec(ctx, q, reporterID, postID, reason, note)
+	if err != nil {
+		return fmt.Errorf("create report: %w", err)
+	}
+	return nil
 }
 
 // ListPublicPostsByPage returns non-deleted top-level posts for a page, for AP outbox pagination.

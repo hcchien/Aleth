@@ -4,6 +4,7 @@ import (
 	"context"
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -18,7 +19,7 @@ var schemaString string
 // NewSchema builds the executable GraphQL schema for the gateway.
 func NewSchema(authClient *client.AuthClient, contentClient *client.ContentClient, feedClient *client.FeedClient, notifClient *client.NotificationClient, federationClient *client.FederationClient) *graphql.Schema {
 	r := &Resolver{auth: authClient, content: contentClient, feed: feedClient, notif: notifClient, federation: federationClient}
-	return graphql.MustParseSchema(schemaString, r, graphql.UseStringDescriptions())
+	return graphql.MustParseSchema(schemaString, r, graphql.UseStringDescriptions(), graphql.MaxDepth(10), graphql.MaxParallelism(10))
 }
 
 // ─── Context ──────────────────────────────────────────────────────────────────
@@ -55,6 +56,28 @@ func WithUserClaims(ctx context.Context, c UserClaims) context.Context {
 func claimsFromCtx(ctx context.Context) (UserClaims, bool) {
 	c, ok := ctx.Value(ctxUserClaims).(UserClaims)
 	return c, ok
+}
+
+// requireAuth returns verified JWT claims or an error if the request is unauthenticated.
+// Provides defence-in-depth: enforces auth at the gateway even if a downstream service has a bug.
+func requireAuth(ctx context.Context) (UserClaims, error) {
+	claims, ok := claimsFromCtx(ctx)
+	if !ok {
+		return UserClaims{}, errors.New("authentication required")
+	}
+	return claims, nil
+}
+
+// requireTrustLevel returns an error if the caller's trust level is below minLevel.
+func requireTrustLevel(ctx context.Context, minLevel int) (UserClaims, error) {
+	claims, err := requireAuth(ctx)
+	if err != nil {
+		return UserClaims{}, err
+	}
+	if claims.TrustLevel < minLevel {
+		return UserClaims{}, fmt.Errorf("insufficient permissions")
+	}
+	return claims, nil
 }
 
 // ─── Root Resolver ────────────────────────────────────────────────────────────
@@ -171,7 +194,7 @@ type BoardSettingsInput struct {
 // ─── Query resolvers ──────────────────────────────────────────────────────────
 
 func (r *Resolver) Me(ctx context.Context) (*UserResolver, error) {
-	data, err := r.authGQL(ctx, `{ me { id did username displayName email trustLevel apEnabled createdAt } }`, nil)
+	data, err := r.authGQL(ctx, `{ me { id did username displayName email emailVerified trustLevel apEnabled createdAt } }`, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -701,7 +724,7 @@ func (r *Resolver) feedConnToResolver(conn *client.GatewayFeedConnection) *FeedC
 
 // ─── Auth mutation resolvers ──────────────────────────────────────────────────
 
-const authUserFields = `id did username displayName email trustLevel apEnabled createdAt`
+const authUserFields = `id did username displayName email emailVerified trustLevel apEnabled createdAt`
 const authPayloadFields = `accessToken refreshToken user { ` + authUserFields + ` }`
 
 func (r *Resolver) Register(ctx context.Context, args struct{ Input RegisterInput }) (*AuthPayloadResolver, error) {
@@ -875,6 +898,9 @@ func (r *Resolver) RefreshToken(ctx context.Context, args struct{ Token string }
 }
 
 func (r *Resolver) RevokeToken(ctx context.Context) (bool, error) {
+	if _, err := requireAuth(ctx); err != nil {
+		return false, err
+	}
 	data, err := r.authGQL(ctx, `mutation { revokeToken }`, nil)
 	if err != nil {
 		return false, err
@@ -887,6 +913,9 @@ func (r *Resolver) RevokeToken(ctx context.Context) (bool, error) {
 }
 
 func (r *Resolver) FollowUser(ctx context.Context, args struct{ UserID graphql.ID }) (bool, error) {
+	if _, err := requireAuth(ctx); err != nil {
+		return false, err
+	}
 	data, err := r.authGQL(ctx,
 		`mutation($userID: ID!) { followUser(userID: $userID) }`,
 		map[string]any{"userID": string(args.UserID)},
@@ -904,6 +933,9 @@ func (r *Resolver) FollowUser(ctx context.Context, args struct{ UserID graphql.I
 }
 
 func (r *Resolver) UnfollowUser(ctx context.Context, args struct{ UserID graphql.ID }) (bool, error) {
+	if _, err := requireAuth(ctx); err != nil {
+		return false, err
+	}
 	data, err := r.authGQL(ctx,
 		`mutation($userID: ID!) { unfollowUser(userID: $userID) }`,
 		map[string]any{"userID": string(args.UserID)},
@@ -929,6 +961,9 @@ const seriesWithArticlesFields = `id boardId title description articleCount arti
 const boardFields = `id ownerId name description defaultAccess minTrustLevel commentPolicy minCommentTrust requireVcs { vcType issuer } requireCommentVcs { vcType issuer } subscriberCount isSubscribed createdAt`
 
 func (r *Resolver) CreatePost(ctx context.Context, args struct{ Input CreatePostInput }) (*PostResolver, error) {
+	if _, err := requireAuth(ctx); err != nil {
+		return nil, err
+	}
 	inputMap := map[string]any{"content": args.Input.Content}
 	if args.Input.ImageUrls != nil && len(*args.Input.ImageUrls) > 0 {
 		inputMap["imageUrls"] = *args.Input.ImageUrls
@@ -954,6 +989,9 @@ func (r *Resolver) CreatePost(ctx context.Context, args struct{ Input CreatePost
 }
 
 func (r *Resolver) CreateNote(ctx context.Context, args struct{ Input CreateNoteInput }) (*PostResolver, error) {
+	if _, err := requireAuth(ctx); err != nil {
+		return nil, err
+	}
 	inputMap := map[string]any{
 		"content":   args.Input.Content,
 		"noteTitle": args.Input.NoteTitle,
@@ -988,6 +1026,9 @@ func (r *Resolver) ResharePost(ctx context.Context, args struct {
 	PostId graphql.ID
 	Input  ResharePostInput
 }) (*PostResolver, error) {
+	if _, err := requireAuth(ctx); err != nil {
+		return nil, err
+	}
 	inputMap := map[string]any{}
 	if args.Input.Content != nil {
 		inputMap["content"] = *args.Input.Content
@@ -1019,6 +1060,9 @@ func (r *Resolver) ReplyPost(ctx context.Context, args struct {
 	PostId graphql.ID
 	Input  CreatePostInput
 }) (*PostResolver, error) {
+	if _, err := requireAuth(ctx); err != nil {
+		return nil, err
+	}
 	data, err := r.contentGQL(ctx,
 		`mutation($postId: ID!, $input: CreatePostInput!) { replyPost(postId: $postId, input: $input) { `+postFields+` } }`,
 		map[string]any{
@@ -1043,6 +1087,9 @@ func (r *Resolver) ReplyPost(ctx context.Context, args struct {
 }
 
 func (r *Resolver) DeletePost(ctx context.Context, args struct{ ID graphql.ID }) (bool, error) {
+	if _, err := requireAuth(ctx); err != nil {
+		return false, err
+	}
 	data, err := r.contentGQL(ctx,
 		`mutation($id: ID!) { deletePost(id: $id) }`,
 		map[string]any{"id": string(args.ID)},
@@ -1057,7 +1104,54 @@ func (r *Resolver) DeletePost(ctx context.Context, args struct{ ID graphql.ID })
 	return resp.DeletePost, nil
 }
 
+func (r *Resolver) AdminDeletePost(ctx context.Context, args struct{ ID graphql.ID }) (bool, error) {
+	if _, err := requireTrustLevel(ctx, 5); err != nil {
+		return false, err
+	}
+	data, err := r.contentGQL(ctx,
+		`mutation($id: ID!) { adminDeletePost(id: $id) }`,
+		map[string]any{"id": string(args.ID)},
+	)
+	if err != nil {
+		return false, err
+	}
+	var resp struct {
+		AdminDeletePost bool `json:"adminDeletePost"`
+	}
+	json.Unmarshal(data, &resp) //nolint:errcheck
+	return resp.AdminDeletePost, nil
+}
+
+func (r *Resolver) ReportPost(ctx context.Context, args struct {
+	PostId graphql.ID
+	Reason string
+	Note   *string
+}) (bool, error) {
+	if _, err := requireAuth(ctx); err != nil {
+		return false, err
+	}
+	note := ""
+	if args.Note != nil {
+		note = *args.Note
+	}
+	data, err := r.contentGQL(ctx,
+		`mutation($postId: ID!, $reason: String!, $note: String!) { reportPost(postId: $postId, reason: $reason, note: $note) }`,
+		map[string]any{"postId": string(args.PostId), "reason": args.Reason, "note": note},
+	)
+	if err != nil {
+		return false, err
+	}
+	var resp struct {
+		ReportPost bool `json:"reportPost"`
+	}
+	json.Unmarshal(data, &resp) //nolint:errcheck
+	return resp.ReportPost, nil
+}
+
 func (r *Resolver) LikePost(ctx context.Context, args struct{ PostId graphql.ID }) (bool, error) {
+	if _, err := requireAuth(ctx); err != nil {
+		return false, err
+	}
 	data, err := r.contentGQL(ctx,
 		`mutation($postId: ID!) { likePost(postId: $postId) }`,
 		map[string]any{"postId": string(args.PostId)},
@@ -1073,6 +1167,9 @@ func (r *Resolver) LikePost(ctx context.Context, args struct{ PostId graphql.ID 
 }
 
 func (r *Resolver) UnlikePost(ctx context.Context, args struct{ PostId graphql.ID }) (bool, error) {
+	if _, err := requireAuth(ctx); err != nil {
+		return false, err
+	}
 	data, err := r.contentGQL(ctx,
 		`mutation($postId: ID!) { unlikePost(postId: $postId) }`,
 		map[string]any{"postId": string(args.PostId)},
@@ -1091,6 +1188,9 @@ func (r *Resolver) ReactPost(ctx context.Context, args struct {
 	PostId  graphql.ID
 	Emotion string
 }) (bool, error) {
+	if _, err := requireAuth(ctx); err != nil {
+		return false, err
+	}
 	data, err := r.contentGQL(ctx,
 		`mutation($postId: ID!, $emotion: String!) { reactPost(postId: $postId, emotion: $emotion) }`,
 		map[string]any{"postId": string(args.PostId), "emotion": args.Emotion},
@@ -1108,6 +1208,9 @@ func (r *Resolver) ReactPost(ctx context.Context, args struct {
 }
 
 func (r *Resolver) UnreactPost(ctx context.Context, args struct{ PostId graphql.ID }) (bool, error) {
+	if _, err := requireAuth(ctx); err != nil {
+		return false, err
+	}
 	data, err := r.contentGQL(ctx,
 		`mutation($postId: ID!) { unreactPost(postId: $postId) }`,
 		map[string]any{"postId": string(args.PostId)},
@@ -1130,9 +1233,9 @@ func (r *Resolver) UnreactPost(ctx context.Context, args struct{ PostId graphql.
 // board's trust level and VC requirements for writing articles.
 // Pass forComment=true to check the comment-write policy instead.
 func (r *Resolver) checkBoardWritePolicy(ctx context.Context, board client.ContentBoard, forComment bool) error {
-	claims, ok := claimsFromCtx(ctx)
-	if !ok {
-		return fmt.Errorf("not authenticated")
+	claims, err := requireAuth(ctx)
+	if err != nil {
+		return err
 	}
 
 	var minTrust int
@@ -1183,6 +1286,9 @@ func (r *Resolver) CreateArticleComment(ctx context.Context, args struct {
 	Content         string
 	ParentCommentId *graphql.ID
 }) (*ArticleCommentResolver, error) {
+	if _, err := requireAuth(ctx); err != nil {
+		return nil, err
+	}
 	// Fetch the article to get its boardId, then enforce the comment-write policy.
 	articleData, err := r.contentGQL(ctx,
 		`query($id: ID!) { article(id: $id) { boardId } }`,
@@ -1249,9 +1355,9 @@ func (r *Resolver) CreateArticleComment(ctx context.Context, args struct {
 
 func (r *Resolver) CreateArticle(ctx context.Context, args struct{ Input CreateArticleInput }) (*ArticleResolver, error) {
 	// Fetch the calling user's board to enforce the write policy.
-	claims, ok := claimsFromCtx(ctx)
-	if !ok {
-		return nil, fmt.Errorf("not authenticated")
+	claims, err := requireAuth(ctx)
+	if err != nil {
+		return nil, err
 	}
 	boardData, err := r.contentGQL(ctx,
 		`query($ownerID: ID!) { board(ownerID: $ownerID) { `+boardFields+` } }`,
@@ -1297,6 +1403,9 @@ func (r *Resolver) UpdateArticle(ctx context.Context, args struct {
 	ID    graphql.ID
 	Input UpdateArticleInput
 }) (*ArticleResolver, error) {
+	if _, err := requireAuth(ctx); err != nil {
+		return nil, err
+	}
 	input := map[string]any{}
 	if args.Input.Title != nil {
 		input["title"] = *args.Input.Title
@@ -1327,6 +1436,9 @@ func (r *Resolver) UpdateArticle(ctx context.Context, args struct {
 }
 
 func (r *Resolver) PublishArticle(ctx context.Context, args struct{ ID graphql.ID }) (*ArticleResolver, error) {
+	if _, err := requireAuth(ctx); err != nil {
+		return nil, err
+	}
 	data, err := r.contentGQL(ctx,
 		`mutation($id: ID!) { publishArticle(id: $id) { `+articleFields+` } }`,
 		map[string]any{"id": string(args.ID)},
@@ -1344,6 +1456,9 @@ func (r *Resolver) PublishArticle(ctx context.Context, args struct{ ID graphql.I
 }
 
 func (r *Resolver) DeleteArticle(ctx context.Context, args struct{ ID graphql.ID }) (bool, error) {
+	if _, err := requireAuth(ctx); err != nil {
+		return false, err
+	}
 	data, err := r.contentGQL(ctx,
 		`mutation($id: ID!) { deleteArticle(id: $id) }`,
 		map[string]any{"id": string(args.ID)},
@@ -1359,6 +1474,9 @@ func (r *Resolver) DeleteArticle(ctx context.Context, args struct{ ID graphql.ID
 }
 
 func (r *Resolver) UpdateBoardSettings(ctx context.Context, args struct{ Input BoardSettingsInput }) (*BoardResolver, error) {
+	if _, err := requireAuth(ctx); err != nil {
+		return nil, err
+	}
 	input := map[string]any{}
 	if args.Input.Name != nil {
 		input["name"] = *args.Input.Name
@@ -1400,6 +1518,9 @@ type BoardVcPolicyInput struct {
 }
 
 func (r *Resolver) UpdateBoardVcPolicy(ctx context.Context, args struct{ Input BoardVcPolicyInput }) (*BoardResolver, error) {
+	if _, err := requireAuth(ctx); err != nil {
+		return nil, err
+	}
 	requireVcs := make([]map[string]string, len(args.Input.RequireVcs))
 	for i, v := range args.Input.RequireVcs {
 		requireVcs[i] = map[string]string{"vcType": v.VcType, "issuer": v.Issuer}
@@ -1430,6 +1551,9 @@ func (r *Resolver) UpdateBoardVcPolicy(ctx context.Context, args struct{ Input B
 }
 
 func (r *Resolver) SubscribeBoard(ctx context.Context, args struct{ OwnerID graphql.ID }) (bool, error) {
+	if _, err := requireAuth(ctx); err != nil {
+		return false, err
+	}
 	data, err := r.contentGQL(ctx,
 		`mutation($ownerID: ID!) { subscribeBoard(ownerID: $ownerID) }`,
 		map[string]any{"ownerID": string(args.OwnerID)},
@@ -1445,6 +1569,9 @@ func (r *Resolver) SubscribeBoard(ctx context.Context, args struct{ OwnerID grap
 }
 
 func (r *Resolver) UnsubscribeBoard(ctx context.Context, args struct{ OwnerID graphql.ID }) (bool, error) {
+	if _, err := requireAuth(ctx); err != nil {
+		return false, err
+	}
 	data, err := r.contentGQL(ctx,
 		`mutation($ownerID: ID!) { unsubscribeBoard(ownerID: $ownerID) }`,
 		map[string]any{"ownerID": string(args.OwnerID)},
@@ -1480,14 +1607,15 @@ type UserResolver struct {
 	r    *Resolver
 }
 
-func (ur *UserResolver) ID() graphql.ID       { return graphql.ID(ur.user.ID) }
-func (ur *UserResolver) DID() string          { return ur.user.DID }
-func (ur *UserResolver) Username() string     { return ur.user.Username }
-func (ur *UserResolver) DisplayName() *string { return ur.user.DisplayName }
-func (ur *UserResolver) Email() *string       { return ur.user.Email }
-func (ur *UserResolver) TrustLevel() int32    { return ur.user.TrustLevel }
-func (ur *UserResolver) ApEnabled() bool      { return ur.user.APEnabled }
-func (ur *UserResolver) CreatedAt() string    { return ur.user.CreatedAt }
+func (ur *UserResolver) ID() graphql.ID        { return graphql.ID(ur.user.ID) }
+func (ur *UserResolver) DID() string           { return ur.user.DID }
+func (ur *UserResolver) Username() string      { return ur.user.Username }
+func (ur *UserResolver) DisplayName() *string  { return ur.user.DisplayName }
+func (ur *UserResolver) Email() *string        { return ur.user.Email }
+func (ur *UserResolver) EmailVerified() bool   { return ur.user.EmailVerified }
+func (ur *UserResolver) TrustLevel() int32     { return ur.user.TrustLevel }
+func (ur *UserResolver) ApEnabled() bool       { return ur.user.APEnabled }
+func (ur *UserResolver) CreatedAt() string     { return ur.user.CreatedAt }
 
 func (ur *UserResolver) Board(ctx context.Context) (*BoardResolver, error) {
 	data, err := ur.r.contentGQL(ctx,
@@ -1960,6 +2088,9 @@ type GatewayRegisterVcTypeInput struct {
 }
 
 func (r *Resolver) RegisterVcType(ctx context.Context, args struct{ Input GatewayRegisterVcTypeInput }) (*VcTypeInfoResolver, error) {
+	if _, err := requireAuth(ctx); err != nil {
+		return nil, err
+	}
 	data, err := r.authGQL(ctx,
 		`mutation($input: RegisterVcTypeInput!) { registerVcType(input: $input) { vcType issuer label description createdByUsername } }`,
 		map[string]any{"input": map[string]any{
@@ -1997,6 +2128,9 @@ func (r *Resolver) DisableVcType(ctx context.Context, args struct {
 	VcType string
 	Issuer string
 }) (bool, error) {
+	if _, err := requireAuth(ctx); err != nil {
+		return false, err
+	}
 	data, err := r.authGQL(ctx,
 		`mutation($vcType: String!, $issuer: String!) { disableVcType(vcType: $vcType, issuer: $issuer) }`,
 		map[string]any{"vcType": args.VcType, "issuer": args.Issuer},
@@ -2048,8 +2182,29 @@ func (r *Resolver) MyReputation(ctx context.Context) (*ReputationStatusResolver,
 	return &ReputationStatusResolver{status: resp.MyReputation}, nil
 }
 
+// MyCredentialTypes returns the distinct credential types for the current user.
+func (r *Resolver) MyCredentialTypes(ctx context.Context) ([]string, error) {
+	data, err := r.authGQL(ctx, `{ myCredentialTypes }`, nil)
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		MyCredentialTypes []string `json:"myCredentialTypes"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return nil, fmt.Errorf("decode myCredentialTypes: %w", err)
+	}
+	if resp.MyCredentialTypes == nil {
+		return []string{}, nil
+	}
+	return resp.MyCredentialTypes, nil
+}
+
 // RequestPhoneOTP forwards to the auth service.
 func (r *Resolver) RequestPhoneOTP(ctx context.Context, args struct{ Phone string }) (bool, error) {
+	if _, err := requireAuth(ctx); err != nil {
+		return false, err
+	}
 	data, err := r.authGQL(ctx,
 		`mutation($phone: String!) { requestPhoneOTP(phone: $phone) }`,
 		map[string]any{"phone": args.Phone},
@@ -2069,6 +2224,9 @@ func (r *Resolver) VerifyPhoneOTP(ctx context.Context, args struct {
 	Phone string
 	Code  string
 }) (*AuthPayloadResolver, error) {
+	if _, err := requireAuth(ctx); err != nil {
+		return nil, err
+	}
 	data, err := r.authGQL(ctx,
 		`mutation($phone: String!, $code: String!) {
 			verifyPhoneOTP(phone: $phone, code: $code) {
@@ -2090,9 +2248,127 @@ func (r *Resolver) VerifyPhoneOTP(ctx context.Context, args struct {
 	return &AuthPayloadResolver{payload: resp.VerifyPhoneOTP, r: r}, nil
 }
 
+// RequestPasswordReset forwards to the auth service to send a password reset email.
+// Always returns true to avoid leaking whether an account exists.
+func (r *Resolver) RequestPasswordReset(ctx context.Context, args struct{ Email string }) (bool, error) {
+	data, err := r.authGQL(ctx,
+		`mutation($email: String!) { requestPasswordReset(email: $email) }`,
+		map[string]any{"email": args.Email},
+	)
+	if err != nil {
+		return false, err
+	}
+	var resp struct {
+		RequestPasswordReset bool `json:"requestPasswordReset"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return false, fmt.Errorf("decode requestPasswordReset: %w", err)
+	}
+	return resp.RequestPasswordReset, nil
+}
+
+// ResetPassword forwards to the auth service to set a new password using a reset token.
+func (r *Resolver) ResetPassword(ctx context.Context, args struct {
+	Token       string
+	NewPassword string
+}) (bool, error) {
+	data, err := r.authGQL(ctx,
+		`mutation($token: String!, $newPassword: String!) { resetPassword(token: $token, newPassword: $newPassword) }`,
+		map[string]any{"token": args.Token, "newPassword": args.NewPassword},
+	)
+	if err != nil {
+		return false, err
+	}
+	var resp struct {
+		ResetPassword bool `json:"resetPassword"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return false, fmt.Errorf("decode resetPassword: %w", err)
+	}
+	return resp.ResetPassword, nil
+}
+
+// DisconnectOAuth forwards to the auth service to remove an OAuth credential.
+func (r *Resolver) DisconnectOAuth(ctx context.Context, args struct{ Provider string }) (bool, error) {
+	if _, err := requireAuth(ctx); err != nil {
+		return false, err
+	}
+	data, err := r.authGQL(ctx,
+		`mutation($provider: String!) { disconnectOAuth(provider: $provider) }`,
+		map[string]any{"provider": args.Provider},
+	)
+	if err != nil {
+		return false, err
+	}
+	var resp struct {
+		DisconnectOAuth bool `json:"disconnectOAuth"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return false, fmt.Errorf("decode disconnectOAuth: %w", err)
+	}
+	return resp.DisconnectOAuth, nil
+}
+
+// DeleteAccount forwards to the auth service to permanently delete the user's account.
+func (r *Resolver) DeleteAccount(ctx context.Context) (bool, error) {
+	if _, err := requireAuth(ctx); err != nil {
+		return false, err
+	}
+	data, err := r.authGQL(ctx, `mutation { deleteAccount }`, nil)
+	if err != nil {
+		return false, err
+	}
+	var resp struct {
+		DeleteAccount bool `json:"deleteAccount"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return false, fmt.Errorf("decode deleteAccount: %w", err)
+	}
+	return resp.DeleteAccount, nil
+}
+
+// VerifyEmail forwards to the auth service to consume an email verification token.
+func (r *Resolver) VerifyEmail(ctx context.Context, args struct{ Token string }) (bool, error) {
+	data, err := r.authGQL(ctx,
+		`mutation($token: String!) { verifyEmail(token: $token) }`,
+		map[string]any{"token": args.Token},
+	)
+	if err != nil {
+		return false, err
+	}
+	var resp struct {
+		VerifyEmail bool `json:"verifyEmail"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return false, fmt.Errorf("decode verifyEmail: %w", err)
+	}
+	return resp.VerifyEmail, nil
+}
+
+// ResendVerificationEmail forwards to the auth service to re-send the verification link.
+func (r *Resolver) ResendVerificationEmail(ctx context.Context) (bool, error) {
+	if _, err := requireAuth(ctx); err != nil {
+		return false, err
+	}
+	data, err := r.authGQL(ctx, `mutation { resendVerificationEmail }`, nil)
+	if err != nil {
+		return false, err
+	}
+	var resp struct {
+		ResendVerificationEmail bool `json:"resendVerificationEmail"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return false, fmt.Errorf("decode resendVerificationEmail: %w", err)
+	}
+	return resp.ResendVerificationEmail, nil
+}
+
 // StartSocialVerification forwards to the auth service to begin an OAuth 2.0 reputation flow.
 // Returns the provider's authorization URL; the client should redirect the user there.
 func (r *Resolver) StartSocialVerification(ctx context.Context, args struct{ Provider string }) (string, error) {
+	if _, err := requireAuth(ctx); err != nil {
+		return "", err
+	}
 	data, err := r.authGQL(ctx,
 		`mutation($provider: String!) { startSocialVerification(provider: $provider) }`,
 		map[string]any{"provider": args.Provider},
@@ -2111,6 +2387,9 @@ func (r *Resolver) StartSocialVerification(ctx context.Context, args struct{ Pro
 
 // SetActivityPubEnabled forwards the AP toggle mutation to the auth service.
 func (r *Resolver) SetActivityPubEnabled(ctx context.Context, args struct{ Enabled bool }) (bool, error) {
+	if _, err := requireAuth(ctx); err != nil {
+		return false, err
+	}
 	data, err := r.authGQL(ctx,
 		`mutation($enabled: Boolean!) { setActivityPubEnabled(enabled: $enabled) }`,
 		map[string]any{"enabled": args.Enabled},
@@ -2388,6 +2667,9 @@ type GatewayCreatePageInput struct {
 }
 
 func (r *Resolver) CreatePage(ctx context.Context, args struct{ Input GatewayCreatePageInput }) (*GatewayFanPageResolver, error) {
+	if _, err := requireAuth(ctx); err != nil {
+		return nil, err
+	}
 	input := map[string]any{
 		"slug": args.Input.Slug,
 		"name": args.Input.Name,
@@ -2433,6 +2715,9 @@ func (r *Resolver) UpdatePage(ctx context.Context, args struct {
 	PageId graphql.ID
 	Input  GatewayUpdatePageInput
 }) (*GatewayFanPageResolver, error) {
+	if _, err := requireAuth(ctx); err != nil {
+		return nil, err
+	}
 	input := map[string]any{}
 	if args.Input.Name != nil {
 		input["name"] = *args.Input.Name
@@ -2479,6 +2764,9 @@ func (r *Resolver) SetPagePolicy(ctx context.Context, args struct {
 	PageId graphql.ID
 	Input  GatewayPagePolicyInput
 }) (*GatewayFanPageResolver, error) {
+	if _, err := requireAuth(ctx); err != nil {
+		return nil, err
+	}
 	input := map[string]any{}
 	if args.Input.DefaultAccess != nil {
 		input["defaultAccess"] = *args.Input.DefaultAccess
@@ -2509,6 +2797,9 @@ func (r *Resolver) SetPagePolicy(ctx context.Context, args struct {
 }
 
 func (r *Resolver) DeletePage(ctx context.Context, args struct{ PageId graphql.ID }) (bool, error) {
+	if _, err := requireAuth(ctx); err != nil {
+		return false, err
+	}
 	data, err := r.contentGQL(ctx,
 		`mutation($pageId: ID!) { deletePage(pageId: $pageId) }`,
 		map[string]any{"pageId": string(args.PageId)},
@@ -2524,6 +2815,9 @@ func (r *Resolver) DeletePage(ctx context.Context, args struct{ PageId graphql.I
 }
 
 func (r *Resolver) FollowPage(ctx context.Context, args struct{ PageId graphql.ID }) (bool, error) {
+	if _, err := requireAuth(ctx); err != nil {
+		return false, err
+	}
 	data, err := r.contentGQL(ctx,
 		`mutation($pageId: ID!) { followPage(pageId: $pageId) }`,
 		map[string]any{"pageId": string(args.PageId)},
@@ -2539,6 +2833,9 @@ func (r *Resolver) FollowPage(ctx context.Context, args struct{ PageId graphql.I
 }
 
 func (r *Resolver) UnfollowPage(ctx context.Context, args struct{ PageId graphql.ID }) (bool, error) {
+	if _, err := requireAuth(ctx); err != nil {
+		return false, err
+	}
 	data, err := r.contentGQL(ctx,
 		`mutation($pageId: ID!) { unfollowPage(pageId: $pageId) }`,
 		map[string]any{"pageId": string(args.PageId)},
@@ -2558,6 +2855,9 @@ func (r *Resolver) AddPageMember(ctx context.Context, args struct {
 	UserId graphql.ID
 	Role   string
 }) (bool, error) {
+	if _, err := requireAuth(ctx); err != nil {
+		return false, err
+	}
 	data, err := r.contentGQL(ctx,
 		`mutation($pageId: ID!, $userId: ID!, $role: PageRole!) { addPageMember(pageId: $pageId, userId: $userId, role: $role) }`,
 		map[string]any{"pageId": string(args.PageId), "userId": string(args.UserId), "role": args.Role},
@@ -2576,6 +2876,9 @@ func (r *Resolver) RemovePageMember(ctx context.Context, args struct {
 	PageId graphql.ID
 	UserId graphql.ID
 }) (bool, error) {
+	if _, err := requireAuth(ctx); err != nil {
+		return false, err
+	}
 	data, err := r.contentGQL(ctx,
 		`mutation($pageId: ID!, $userId: ID!) { removePageMember(pageId: $pageId, userId: $userId) }`,
 		map[string]any{"pageId": string(args.PageId), "userId": string(args.UserId)},
@@ -2594,6 +2897,9 @@ func (r *Resolver) CreatePagePost(ctx context.Context, args struct {
 	PageId  graphql.ID
 	Content string
 }) (*PostResolver, error) {
+	if _, err := requireAuth(ctx); err != nil {
+		return nil, err
+	}
 	data, err := r.contentGQL(ctx,
 		`mutation($pageId: ID!, $content: String!) { createPagePost(pageId: $pageId, content: $content) { `+postFields+` } }`,
 		map[string]any{"pageId": string(args.PageId), "content": args.Content},
@@ -2620,6 +2926,9 @@ func (r *Resolver) CreatePageArticle(ctx context.Context, args struct {
 	ContentMd    *string
 	AccessPolicy string
 }) (*ArticleResolver, error) {
+	if _, err := requireAuth(ctx); err != nil {
+		return nil, err
+	}
 	vars := map[string]any{
 		"pageId":       string(args.PageId),
 		"title":        args.Title,
@@ -2734,6 +3043,9 @@ type UpdateSeriesInput struct {
 }
 
 func (r *Resolver) CreateSeries(ctx context.Context, args struct{ Input CreateSeriesInput }) (*GatewaySeriesResolver, error) {
+	if _, err := requireAuth(ctx); err != nil {
+		return nil, err
+	}
 	vars := map[string]any{"title": args.Input.Title}
 	if args.Input.BoardId != nil {
 		vars["boardId"] = string(*args.Input.BoardId)
@@ -2787,6 +3099,9 @@ func (r *Resolver) UpdateSeries(ctx context.Context, args struct {
 	ID    graphql.ID
 	Input UpdateSeriesInput
 }) (*GatewaySeriesResolver, error) {
+	if _, err := requireAuth(ctx); err != nil {
+		return nil, err
+	}
 	vars := map[string]any{
 		"id":    string(args.ID),
 		"title": args.Input.Title,
@@ -2813,6 +3128,9 @@ func (r *Resolver) UpdateSeries(ctx context.Context, args struct {
 }
 
 func (r *Resolver) DeleteSeries(ctx context.Context, args struct{ ID graphql.ID }) (bool, error) {
+	if _, err := requireAuth(ctx); err != nil {
+		return false, err
+	}
 	data, err := r.contentGQL(ctx,
 		`mutation($id: ID!) { deleteSeries(id: $id) }`,
 		map[string]any{"id": string(args.ID)},
@@ -2833,6 +3151,9 @@ func (r *Resolver) AddArticleToSeries(ctx context.Context, args struct {
 	ArticleId graphql.ID
 	SeriesId  graphql.ID
 }) (*ArticleResolver, error) {
+	if _, err := requireAuth(ctx); err != nil {
+		return nil, err
+	}
 	data, err := r.contentGQL(ctx,
 		`mutation($articleId: ID!, $seriesId: ID!) {
 			addArticleToSeries(articleId: $articleId, seriesId: $seriesId) { `+articleFields+` }
@@ -2852,6 +3173,9 @@ func (r *Resolver) AddArticleToSeries(ctx context.Context, args struct {
 }
 
 func (r *Resolver) RemoveArticleFromSeries(ctx context.Context, args struct{ ArticleId graphql.ID }) (*ArticleResolver, error) {
+	if _, err := requireAuth(ctx); err != nil {
+		return nil, err
+	}
 	data, err := r.contentGQL(ctx,
 		`mutation($articleId: ID!) {
 			removeArticleFromSeries(articleId: $articleId) { `+articleFields+` }
@@ -2930,13 +3254,13 @@ func (r *Resolver) NotificationCount(ctx context.Context) (int32, error) {
 // MarkNotificationsRead marks the specified notifications as read.
 // If ids is nil or empty, marks all unread notifications as read.
 func (r *Resolver) MarkNotificationsRead(ctx context.Context, args struct{ Ids *[]graphql.ID }) (bool, error) {
+	if _, err := requireAuth(ctx); err != nil {
+		return false, err
+	}
 	if r.notif == nil {
 		return true, nil
 	}
 	authHeader := authHeaderFromCtx(ctx)
-	if authHeader == "" {
-		return false, fmt.Errorf("unauthorized")
-	}
 	var ids []string
 	if args.Ids != nil {
 		for _, id := range *args.Ids {
@@ -2954,9 +3278,9 @@ func (r *Resolver) MarkNotificationsRead(ctx context.Context, args struct{ Ids *
 // FollowRemoteActor sends a Follow activity to a remote AP actor on behalf of the viewer.
 // handle can be "@user@threads.net" or a direct actor URL.
 func (r *Resolver) FollowRemoteActor(ctx context.Context, args struct{ Handle string }) (bool, error) {
-	claims, ok := claimsFromCtx(ctx)
-	if !ok || claims.Username == "" {
-		return false, fmt.Errorf("unauthorized")
+	claims, err := requireAuth(ctx)
+	if err != nil {
+		return false, err
 	}
 	if r.federation == nil {
 		return false, fmt.Errorf("federation service not configured")
@@ -2969,9 +3293,9 @@ func (r *Resolver) FollowRemoteActor(ctx context.Context, args struct{ Handle st
 
 // UnfollowRemoteActor sends an Undo(Follow) activity to a remote AP actor.
 func (r *Resolver) UnfollowRemoteActor(ctx context.Context, args struct{ ActorURL string }) (bool, error) {
-	claims, ok := claimsFromCtx(ctx)
-	if !ok || claims.Username == "" {
-		return false, fmt.Errorf("unauthorized")
+	claims, err := requireAuth(ctx)
+	if err != nil {
+		return false, err
 	}
 	if r.federation == nil {
 		return false, fmt.Errorf("federation service not configured")

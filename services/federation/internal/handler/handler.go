@@ -32,16 +32,64 @@ import (
 // remoteHTTPClient is used for all outbound requests to remote AP servers.
 var remoteHTTPClient = &http.Client{Timeout: 15 * time.Second}
 
-// pubKeyCache caches remote actor public keys (keyID → *rsa.PublicKey).
-// Keys are immutable in practice (rotation is rare) so a simple map with no
-// TTL is sufficient; the process restart clears it.
-var pubKeyCache sync.Map
+// pubKeyCache caches remote actor public keys with a 1-hour TTL and a 10,000-entry cap.
+var pubKeyCache = newPubKeyCache(time.Hour, 10_000)
+
+type pubKeyCacheEntry struct {
+	key       *rsa.PublicKey
+	fetchedAt time.Time
+}
+
+type ttlPubKeyCache struct {
+	mu      sync.RWMutex
+	entries map[string]pubKeyCacheEntry
+	ttl     time.Duration
+	maxSize int
+}
+
+func newPubKeyCache(ttl time.Duration, maxSize int) *ttlPubKeyCache {
+	return &ttlPubKeyCache{
+		entries: make(map[string]pubKeyCacheEntry),
+		ttl:     ttl,
+		maxSize: maxSize,
+	}
+}
+
+func (c *ttlPubKeyCache) get(keyID string) (*rsa.PublicKey, bool) {
+	c.mu.RLock()
+	entry, ok := c.entries[keyID]
+	c.mu.RUnlock()
+	if !ok {
+		return nil, false
+	}
+	if time.Since(entry.fetchedAt) > c.ttl {
+		c.mu.Lock()
+		delete(c.entries, keyID)
+		c.mu.Unlock()
+		return nil, false
+	}
+	return entry.key, true
+}
+
+func (c *ttlPubKeyCache) set(keyID string, key *rsa.PublicKey) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	// Evict oldest entries if at capacity.
+	if len(c.entries) >= c.maxSize {
+		// Simple eviction: delete a random entry.
+		for k := range c.entries {
+			delete(c.entries, k)
+			break
+		}
+	}
+	c.entries[keyID] = pubKeyCacheEntry{key: key, fetchedAt: time.Now()}
+}
 
 // fetchRemotePublicKey fetches and caches the RSA public key for the given
 // ActivityPub keyId URL (e.g. "https://mastodon.social/users/alice#main-key").
 func fetchRemotePublicKey(ctx context.Context, keyID string) (*rsa.PublicKey, error) {
-	if v, ok := pubKeyCache.Load(keyID); ok {
-		return v.(*rsa.PublicKey), nil
+	if v, ok := pubKeyCache.get(keyID); ok {
+		return v, nil
 	}
 
 	// The keyId is typically the actor URL with a "#main-key" fragment.
@@ -93,7 +141,7 @@ func fetchRemotePublicKey(ctx context.Context, keyID string) (*rsa.PublicKey, er
 		return nil, fmt.Errorf("key for %s is not RSA", keyID)
 	}
 
-	pubKeyCache.Store(keyID, rsaPub)
+	pubKeyCache.set(keyID, rsaPub)
 	return rsaPub, nil
 }
 

@@ -81,7 +81,7 @@ export default async function NotesPage() {
 
       {notes.length === 0 ? (
         <div className="rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] px-6 py-12 text-center text-sm text-[var(--app-text-muted)]">
-          尚無 Notes。
+          No notes yet.
         </div>
       ) : (
         <div className="space-y-0">

@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { LikeButton } from "./like-button";
+import { ReportButton } from "./report-button";
+import { AdminDeleteButton } from "./admin-delete-button";
 
 interface Post {
   id: string;
@@ -70,6 +72,8 @@ export function PostCard({ post }: { post: Post }) {
             >
               {post.replyCount} 則回覆
             </Link>
+            <ReportButton postId={post.id} authorId={post.author.id} />
+            <AdminDeleteButton postId={post.id} />
           </div>
         </div>
       </div>

@@ -1,11 +1,12 @@
-go 1.24.0
+go 1.25.0
 
 use (
+	./services/admin
 	./services/auth
 	./services/content
 	./services/counter
-	./services/feed
 	./services/federation
+	./services/feed
 	./services/gateway
 	./services/notification
 )

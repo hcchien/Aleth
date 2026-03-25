@@ -42,6 +42,8 @@
     "signingInWithGoogle": "Connexion avec Google…",
     "continueWithFacebook": "Continuer avec Facebook",
     "signingInWithFacebook": "Connexion avec Facebook…",
+    "showSocialOptions": "Se connecter avec Google ou Facebook",
+    "hideSocialOptions": "Masquer les options de connexion sociale",
     "or": "OU",
     "email": "E-mail",
     "password": "Mot de passe",
@@ -86,7 +88,18 @@
     "passkeyFailed": "La configuration de la clé d'accès a échoué",
     "pleaseSignIn": "Veuillez d'abord vous connecter",
     "passkeyNotSupported": "Ce navigateur ne prend pas en charge les clés d'accès/WebAuthn",
-    "passkeyCancelled": "L'enregistrement de la clé d'accès a été annulé"
+    "passkeyCancelled": "L'enregistrement de la clé d'accès a été annulé",
+    "passkeyReadyHint": "Vous pouvez maintenant vous connecter avec votre clé d'accès. Votre connexion sociale n'est plus nécessaire.",
+    "connectedAccounts": "Méthodes de connexion liées",
+    "disconnectOAuth": "Déconnecter",
+    "disconnecting": "Déconnexion…",
+    "disconnectConfirm": "Voulez-vous vraiment déconnecter {provider} ?",
+    "disconnectSuccess": "{provider} a été déconnecté.",
+    "disconnectFailed": "Échec de la déconnexion. Assurez-vous d'avoir une autre méthode de connexion.",
+    "loginMethodPasskey": "Clé d'accès",
+    "loginMethodGoogle": "Google",
+    "loginMethodFacebook": "Facebook",
+    "loginMethodPassword": "Email et mot de passe"
   },
   "boardPolicy": {
     "articlePolicy": "Politique de publication d'articles",

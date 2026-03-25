@@ -8,6 +8,10 @@ type Config struct {
 	ContentDatabaseURL string
 	AuthDatabaseURL    string
 	AccessTokenSecret  string
+
+	// RedisURL enables feed caching (e.g. "redis://localhost:6379/0").
+	// Optional — leave empty to disable caching (useful in development).
+	RedisURL string
 }
 
 // Load reads configuration from environment variables (prefixed FEED_).
@@ -20,5 +24,6 @@ func Load() Config {
 		ContentDatabaseURL: viper.GetString("CONTENT_DATABASE_URL"),
 		AuthDatabaseURL:    viper.GetString("AUTH_DATABASE_URL"),
 		AccessTokenSecret:  viper.GetString("ACCESS_TOKEN_SECRET"),
+		RedisURL:           viper.GetString("REDIS_URL"),
 	}
 }

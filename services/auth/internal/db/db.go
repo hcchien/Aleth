@@ -276,6 +276,42 @@ func (p *Pool) ListCredentialIDsByUserAndType(ctx context.Context, userID uuid.U
 	return ids, rows.Err()
 }
 
+// ListCredentialTypes returns distinct credential types for a user.
+func (p *Pool) ListCredentialTypes(ctx context.Context, userID uuid.UUID) ([]string, error) {
+	const q = `SELECT DISTINCT type FROM user_credentials WHERE user_id = $1 ORDER BY type`
+	rows, err := p.pool.Query(ctx, q, userID)
+	if err != nil {
+		return nil, fmt.Errorf("list credential types: %w", err)
+	}
+	defer rows.Close()
+	var types []string
+	for rows.Next() {
+		var t string
+		if err := rows.Scan(&t); err != nil {
+			return nil, fmt.Errorf("scan credential type: %w", err)
+		}
+		types = append(types, t)
+	}
+	return types, rows.Err()
+}
+
+// UpdatePasskeySignCount updates the sign_count for a passkey credential (replay protection).
+func (p *Pool) UpdatePasskeySignCount(ctx context.Context, credentialID string, signCount uint32) error {
+	const q = `UPDATE user_credentials SET sign_count = $2 WHERE type = 'passkey' AND credential_id = $1`
+	_, err := p.pool.Exec(ctx, q, credentialID, signCount)
+	return err
+}
+
+// DeleteCredentialByType removes all credentials of a given type for a user.
+// The caller is responsible for ensuring at least one other credential type remains.
+func (p *Pool) DeleteCredentialByType(ctx context.Context, userID uuid.UUID, credType string) error {
+	_, err := p.pool.Exec(ctx,
+		`DELETE FROM user_credentials WHERE user_id = $1 AND type = $2`,
+		userID, credType,
+	)
+	return err
+}
+
 // ─── Refresh token queries ────────────────────────────────────────────────────
 
 type CreateRefreshTokenParams struct {
@@ -698,6 +734,121 @@ func (p *Pool) VerifyPhoneOTP(ctx context.Context, userID uuid.UUID, phone, code
 	return true, nil
 }
 
+// ─── Password reset tokens ────────────────────────────────────────────────────
+
+// PasswordResetToken represents a single-use token for resetting a user's password.
+type PasswordResetToken struct {
+	ID        uuid.UUID
+	UserID    uuid.UUID
+	TokenHash string
+	ExpiresAt time.Time
+	CreatedAt time.Time
+}
+
+func (p *Pool) CreatePasswordResetToken(ctx context.Context, userID uuid.UUID, tokenHash string, expiresAt time.Time) error {
+	_, err := p.pool.Exec(ctx,
+		`INSERT INTO password_reset_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3)`,
+		userID, tokenHash, expiresAt,
+	)
+	return err
+}
+
+func (p *Pool) GetPasswordResetToken(ctx context.Context, tokenHash string) (*PasswordResetToken, error) {
+	var t PasswordResetToken
+	err := p.pool.QueryRow(ctx,
+		`SELECT id, user_id, token_hash, expires_at, created_at FROM password_reset_tokens WHERE token_hash = $1`,
+		tokenHash,
+	).Scan(&t.ID, &t.UserID, &t.TokenHash, &t.ExpiresAt, &t.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("get password reset token: %w", err)
+	}
+	return &t, nil
+}
+
+func (p *Pool) DeletePasswordResetToken(ctx context.Context, tokenHash string) error {
+	_, err := p.pool.Exec(ctx,
+		`DELETE FROM password_reset_tokens WHERE token_hash = $1`,
+		tokenHash,
+	)
+	return err
+}
+
+func (p *Pool) DeleteExpiredPasswordResetTokens(ctx context.Context) error {
+	_, err := p.pool.Exec(ctx,
+		`DELETE FROM password_reset_tokens WHERE expires_at < now()`,
+	)
+	return err
+}
+
+// UpdatePasswordCredential replaces the bcrypt hash stored in user_credentials
+// for the given user's 'password' credential type.
+func (p *Pool) UpdatePasswordCredential(ctx context.Context, userID uuid.UUID, newHash []byte) error {
+	_, err := p.pool.Exec(ctx,
+		`UPDATE user_credentials SET credential_data = $2 WHERE user_id = $1 AND type = 'password'`,
+		userID, newHash,
+	)
+	return err
+}
+
+// ─── Email verification tokens ────────────────────────────────────────────────
+
+// EmailVerificationToken is a single-use token sent to the user's email address
+// to confirm they own it.
+type EmailVerificationToken struct {
+	ID        uuid.UUID
+	UserID    uuid.UUID
+	TokenHash string
+	ExpiresAt time.Time
+	CreatedAt time.Time
+}
+
+func (p *Pool) CreateEmailVerificationToken(ctx context.Context, userID uuid.UUID, tokenHash string, expiresAt time.Time) error {
+	_, err := p.pool.Exec(ctx,
+		`INSERT INTO email_verification_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3)`,
+		userID, tokenHash, expiresAt,
+	)
+	return err
+}
+
+func (p *Pool) GetEmailVerificationToken(ctx context.Context, tokenHash string) (*EmailVerificationToken, error) {
+	var t EmailVerificationToken
+	err := p.pool.QueryRow(ctx,
+		`SELECT id, user_id, token_hash, expires_at, created_at FROM email_verification_tokens WHERE token_hash = $1`,
+		tokenHash,
+	).Scan(&t.ID, &t.UserID, &t.TokenHash, &t.ExpiresAt, &t.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("get email verification token: %w", err)
+	}
+	return &t, nil
+}
+
+func (p *Pool) DeleteEmailVerificationToken(ctx context.Context, tokenHash string) error {
+	_, err := p.pool.Exec(ctx,
+		`DELETE FROM email_verification_tokens WHERE token_hash = $1`,
+		tokenHash,
+	)
+	return err
+}
+
+// DeleteEmailVerificationTokensByUser removes all pending tokens for a user
+// (called before issuing a new one on resend).
+func (p *Pool) DeleteEmailVerificationTokensByUser(ctx context.Context, userID uuid.UUID) error {
+	_, err := p.pool.Exec(ctx,
+		`DELETE FROM email_verification_tokens WHERE user_id = $1`,
+		userID,
+	)
+	return err
+}
+
+// MarkEmailVerified sets email_verified = true for the given user.
+func (p *Pool) MarkEmailVerified(ctx context.Context, userID uuid.UUID) error {
+	_, err := p.pool.Exec(ctx,
+		`UPDATE users SET email_verified = true, updated_at = now() WHERE id = $1`,
+		userID,
+	)
+	return err
+}
+
 // ─── OAuth States ─────────────────────────────────────────────────────────────
 
 // OAuthState is a short-lived PKCE/CSRF record for social OAuth reputation flows.
@@ -756,4 +907,33 @@ func (p *Pool) GetOAuthState(ctx context.Context, nonce string) (OAuthState, err
 func (p *Pool) DeleteOAuthState(ctx context.Context, nonce string) error {
 	_, err := p.pool.Exec(ctx, `DELETE FROM oauth_states WHERE nonce = $1`, nonce)
 	return err
+}
+
+// ─── Account deletion ─────────────────────────────────────────────────────────
+
+// SoftDeleteUser marks the account as deleted and anonymises PII:
+//   - sets deleted_at to now()
+//   - clears email and display_name
+//   - renames username to "deleted_{id}" so the original name is freed
+//
+// All sessions are revoked separately via RevokeAllRefreshTokensForUser.
+func (p *Pool) SoftDeleteUser(ctx context.Context, userID uuid.UUID) error {
+	anonUsername := fmt.Sprintf("deleted_%s", userID.String()[:8])
+	const q = `
+		UPDATE users
+		SET deleted_at   = now(),
+		    email        = NULL,
+		    display_name = NULL,
+		    username     = $2,
+		    updated_at   = now()
+		WHERE id = $1 AND deleted_at IS NULL
+	`
+	tag, err := p.pool.Exec(ctx, q, userID, anonUsername)
+	if err != nil {
+		return fmt.Errorf("soft delete user: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return fmt.Errorf("user not found or already deleted")
+	}
+	return nil
 }

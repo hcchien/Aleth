@@ -20,6 +20,7 @@ type Config struct {
 	GoogleClientID string
 	FacebookAppID  string
 	PasskeyRPID    string
+	PasskeyRPOrigin string // AUTH_PASSKEY_RP_ORIGIN e.g. "https://aleth.social" or "http://localhost:3000"
 
 	// Social OAuth reputation providers
 	// Twitter OAuth 2.0 (requires PKCE)
@@ -42,6 +43,16 @@ type Config struct {
 	// (or failed) OAuth callback the user is redirected here.
 	// Example: "https://example.com" or "http://localhost:3000"
 	FrontendURL string
+
+	// SMTP settings for transactional email (password reset, etc.)
+	SMTPHost     string // AUTH_SMTP_HOST (default "localhost")
+	SMTPPort     int    // AUTH_SMTP_PORT (default 587)
+	SMTPUser     string // AUTH_SMTP_USER
+	SMTPPassword string // AUTH_SMTP_PASSWORD
+	SMTPFrom     string // AUTH_SMTP_FROM (default "noreply@aleth.social")
+
+	// RedisURL for login-attempt rate limiting. Optional — omit to disable.
+	RedisURL string // AUTH_REDIS_URL
 }
 
 func Load() Config {
@@ -54,6 +65,10 @@ func Load() Config {
 
 	viper.SetDefault("OAUTH_CALLBACK_BASE", "http://localhost:8081")
 	viper.SetDefault("FRONTEND_URL", "http://localhost:3000")
+
+	viper.SetDefault("SMTP_HOST", "localhost")
+	viper.SetDefault("SMTP_PORT", 587)
+	viper.SetDefault("SMTP_FROM", "noreply@aleth.social")
 
 	cfg := Config{
 		Port:           viper.GetString("PORT"),
@@ -71,6 +86,14 @@ func Load() Config {
 		LinkedInClientSecret: viper.GetString("LINKEDIN_CLIENT_SECRET"),
 		OAuthCallbackBase:    viper.GetString("OAUTH_CALLBACK_BASE"),
 		FrontendURL:          viper.GetString("FRONTEND_URL"),
+
+		SMTPHost:     viper.GetString("SMTP_HOST"),
+		SMTPPort:     viper.GetInt("SMTP_PORT"),
+		SMTPUser:     viper.GetString("SMTP_USER"),
+		SMTPPassword: viper.GetString("SMTP_PASSWORD"),
+		SMTPFrom:     viper.GetString("SMTP_FROM"),
+
+		RedisURL: viper.GetString("REDIS_URL"),
 	}
 
 	cfg.AccessTokenSecret = viper.GetString("ACCESS_TOKEN_SECRET")
@@ -90,6 +113,11 @@ func Load() Config {
 	cfg.RefreshTokenTTL = viper.GetDuration("REFRESH_TOKEN_TTL")
 	if cfg.PasskeyRPID == "" {
 		cfg.PasskeyRPID = "localhost"
+	}
+
+	cfg.PasskeyRPOrigin = viper.GetString("PASSKEY_RP_ORIGIN")
+	if cfg.PasskeyRPOrigin == "" {
+		cfg.PasskeyRPOrigin = "http://localhost:3000"
 	}
 
 	return cfg

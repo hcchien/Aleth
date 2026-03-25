@@ -257,6 +257,9 @@ type Mutation {
   resharePost(postId: ID!, input: ResharePostInput!): Post!
   replyPost(postId: ID!, input: CreatePostInput!): Post!
   deletePost(id: ID!): Boolean!
+  # Moderator/admin delete — requires trust_level >= 5, bypasses ownership check.
+  adminDeletePost(id: ID!): Boolean!
+  reportPost(postId: ID!, reason: String!, note: String!): Boolean!
   likePost(postId: ID!): Boolean!
   unlikePost(postId: ID!): Boolean!
   reactPost(postId: ID!, emotion: String!): Boolean!

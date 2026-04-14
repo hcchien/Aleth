@@ -1,0 +1,229 @@
+openapi: 3.0.3
+info:
+  title: Leith API
+  version: 1.0.0
+  description: API for Leith - Distributed Content Notarization System
+paths:
+  /auth/register/options:
+    get:
+      summary: Get WebAuthn Registration Options
+      tags:
+        - Identity
+      responses:
+        '200':
+          description: Registration options
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegistrationOptions'
+  /auth/register:
+    post:
+      summary: Verify WebAuthn Registration Response
+      tags:
+        - Identity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegistrationResponse'
+      responses:
+        '200':
+          description: Registration successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSuccess'
+  /auth/login/options:
+    get:
+      summary: Get WebAuthn Login Options
+      tags:
+        - Identity
+      responses:
+        '200':
+          description: Login options
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginOptions'
+  /auth/login:
+    post:
+      summary: Verify WebAuthn Login Response
+      tags:
+        - Identity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginResponse'
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSuccess'
+  /auth/oauth:
+    post:
+      summary: Login or Register via OAuth (L0 Guest)
+      tags:
+        - Identity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OAuthRequest'
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSuccess'
+  /posts:
+    post:
+      summary: Create a new signed post
+      tags:
+        - Content
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePostRequest'
+      responses:
+        '201':
+          description: Post created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Post'
+    get:
+      summary: Get posts (Public Board Feed)
+      tags:
+        - Content
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: A list of posts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Post'
+
+components:
+  schemas:
+    RegistrationOptions:
+      type: object
+      description: Defines the challenge and configuration for browser Passkey registration.
+      additionalProperties: true
+    RegistrationResponse:
+      type: object
+      description: The response from the browser Passkey API during registration.
+      additionalProperties: true
+    LoginOptions:
+      type: object
+      description: Defines the challenge for browser Passkey login.
+      additionalProperties: true
+    LoginResponse:
+      type: object
+      description: The response from the browser Passkey API during login.
+      additionalProperties: true
+    OAuthRequest:
+      type: object
+      required:
+        - provider
+        - token
+      properties:
+        provider:
+          type: string
+          description: "e.g. google, apple"
+        token:
+          type: string
+          description: "OAuth 2.0 JWT Access/ID Token"
+    AuthSuccess:
+      type: object
+      required:
+        - did
+        - trustTier
+      properties:
+        did:
+          type: string
+          description: "Unique DID, e.g. did:vflow:{pubkey}"
+        trustTier:
+          type: integer
+          description: "Trust level 1-4"
+    CreatePostRequest:
+      type: object
+      required:
+        - body
+        - mediaHashes
+        - timestamp
+        - authorDid
+        - signature
+      properties:
+        body:
+          type: string
+          description: "Text content of the post"
+        mediaHashes:
+          type: array
+          items:
+            type: string
+          description: "Array of D-pHashes for attached media"
+        parentId:
+          type: string
+          description: "Optional ID of a parent post (e.g., Vault long-form reference)"
+        timestamp:
+          type: integer
+          description: "Unix Epoch timestamp when signed"
+        authorDid:
+          type: string
+          description: "DID of the poster"
+        signature:
+          type: string
+          description: "Hex-encoded Ed25519 signature of the payload"
+    Post:
+      type: object
+      required:
+        - id
+        - body
+        - authorDid
+        - timestamp
+        - signature
+      properties:
+        id:
+          type: string
+        body:
+          type: string
+        mediaHashes:
+          type: array
+          items:
+            type: string
+        parentId:
+          type: string
+        timestamp:
+          type: integer
+        authorDid:
+          type: string
+        signature:
+          type: string
+        visibilityScore:
+          type: number
+          format: float
+          description: "Calculated reputation score for feed sorting"

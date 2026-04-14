@@ -1,0 +1,20 @@
+CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  did TEXT NOT NULL UNIQUE,
+  oauth_id TEXT NOT NULL DEFAULT '',
+  public_key BLOB,
+  trust_tier INTEGER NOT NULL,
+  created_at DATETIME NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS posts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  body TEXT NOT NULL,
+  media_hashes TEXT NOT NULL,
+  parent_id INTEGER NULL,
+  timestamp INTEGER NOT NULL,
+  author_did TEXT NOT NULL,
+  signature TEXT NOT NULL,
+  visibility_score REAL NOT NULL,
+  created_at DATETIME NOT NULL
+);

@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 
 // Mock WebAuthn service wrapper
 export default function CryptoManager() {
-    const [identities, setIdentities] = useState([
+    const [identities] = useState([
         // Mock local Identity starting at L0 (OAuth Guest)
         { did: "OAuth: Google", tier: "L0", active: true }
     ]);

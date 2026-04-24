@@ -40,3 +40,11 @@ Thumbs.db
 
 # Claude session data
 .claude/
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+terraform.tfvars
+production.env

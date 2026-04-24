@@ -3,11 +3,11 @@
 import React, { useState } from 'react';
 
 import { User } from '@/types/auth';
-import { createPost } from '@/lib/api';
+import { createPost, Post } from '@/lib/api';
 
 // Mock function to simulate client-side D-pHash calculation
 // In production, this would use an off-screen canvas to read ImageData and apply discrete cosine transform.
-const computeDPHash = async (_file: File): Promise<string> => {
+const computeDPHash = async (): Promise<string> => {
     return new Promise((resolve) => {
         setTimeout(() => {
             // Mock hash generation
@@ -20,8 +20,7 @@ const computeDPHash = async (_file: File): Promise<string> => {
 };
 
 interface MediaLabProps {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    onPostCreate?: (post: any) => void;
+    onPostCreate?: (post: Post) => void;
     user?: User | null;
 }
 
@@ -51,7 +50,7 @@ export default function MediaLab({ onPostCreate, user }: MediaLabProps) {
         if (!file) return;
         setIsHashing(true);
         try {
-            const hash = await computeDPHash(file);
+            const hash = await computeDPHash();
             setComputedHash(hash);
         } finally {
             setIsHashing(false);

@@ -4,7 +4,9 @@ import (
 	"crypto/ed25519"
 	"encoding/hex"
 	"fmt"
+	"net/http"
 
+	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
 )
 
@@ -34,6 +36,22 @@ func NewService(cfg Config) (*Service, error) {
 	}
 
 	return &Service{wa: wa}, nil
+}
+
+func (s *Service) BeginRegistration(user *User) (*protocol.CredentialCreation, *webauthn.SessionData, error) {
+	return s.wa.BeginRegistration(user)
+}
+
+func (s *Service) FinishRegistration(user *User, session webauthn.SessionData, req *http.Request) (*webauthn.Credential, error) {
+	return s.wa.FinishRegistration(user, session, req)
+}
+
+func (s *Service) BeginLogin(user *User) (*protocol.CredentialAssertion, *webauthn.SessionData, error) {
+	return s.wa.BeginLogin(user)
+}
+
+func (s *Service) FinishLogin(user *User, session webauthn.SessionData, req *http.Request) (*webauthn.Credential, error) {
+	return s.wa.FinishLogin(user, session, req)
 }
 
 // GenerateDID derived the unique DID for a Public Key (Ed25519)

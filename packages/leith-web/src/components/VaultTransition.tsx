@@ -7,6 +7,21 @@ import { UserLevelBadge } from '@/components/auth/UserLevelBadge';
 
 import { Post } from '@/lib/api';
 
+type PostWithTrustTier = Post & { trustTier?: number };
+
+function normalizeTrustTier(value?: number): 0 | 1 | 2 | 3 | 4 {
+    switch (value) {
+        case 0:
+        case 1:
+        case 2:
+        case 3:
+        case 4:
+            return value;
+        default:
+            return 1;
+    }
+}
+
 function formatRelativeTime(ts: number) {
     const diff = Date.now() - ts; // Assuming ts from API is epoch ms, if seconds then ts * 1000
     const diffSecs = Math.floor(diff / 1000);
@@ -27,6 +42,8 @@ function formatFullDate(ts: number) {
 // from the Public Board card into the full Personal Vault BBS view.
 export default function VaultTransition({ post }: { post: Post }) {
     const [isOpen, setIsOpen] = useState(false);
+    const postWithTrustTier = post as PostWithTrustTier;
+    const trustTier = normalizeTrustTier(postWithTrustTier.trustTier);
 
     return (
         <>
@@ -44,7 +61,7 @@ export default function VaultTransition({ post }: { post: Post }) {
                         <div className="flex items-center gap-2">
                             <span className="font-medium text-neutral-200 text-sm">{post.authorDid.replace('did:vflow:', '')}</span>
                             <svg className="w-3.5 h-3.5 text-[#d97706]" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" /></svg>
-                            <UserLevelBadge level={((post as any).trustTier) || 1} />
+                            <UserLevelBadge level={trustTier} />
                             <span className="text-neutral-500 text-xs mx-1">·</span>
                             <span className="text-neutral-500 text-xs">{formatRelativeTime(post.timestamp)}</span>
                         </div>
@@ -131,7 +148,7 @@ export default function VaultTransition({ post }: { post: Post }) {
                                             <div className="flex flex-col justify-center">
                                                 <div className="flex items-center gap-3 mb-1">
                                                     <span className="font-medium text-neutral-200 text-sm">{post.authorDid.replace('did:vflow:', '')}</span>
-                                                    <UserLevelBadge level={((post as any).trustTier) || 1} />
+                                                    <UserLevelBadge level={trustTier} />
                                                     <span className="text-xs text-neutral-500 font-mono tracking-wider">0x1234...5678</span>
                                                 </div>
                                             </div>

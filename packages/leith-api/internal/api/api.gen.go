@@ -6,10 +6,881 @@ package api
 import (
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/oapi-codegen/runtime"
 )
+
+// Defines values for ContentItemDiscussionShape.
+const (
+	ContentItemDiscussionShapeDebateCards ContentItemDiscussionShape = "debate_cards"
+	ContentItemDiscussionShapeStanceMap   ContentItemDiscussionShape = "stance_map"
+	ContentItemDiscussionShapeThread      ContentItemDiscussionShape = "thread"
+)
+
+// Valid indicates whether the value is a known member of the ContentItemDiscussionShape enum.
+func (e ContentItemDiscussionShape) Valid() bool {
+	switch e {
+	case ContentItemDiscussionShapeDebateCards:
+		return true
+	case ContentItemDiscussionShapeStanceMap:
+		return true
+	case ContentItemDiscussionShapeThread:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ContentItemMode.
+const (
+	ContentItemModeDiscussion ContentItemMode = "discussion"
+	ContentItemModeIdea       ContentItemMode = "idea"
+	ContentItemModeMurmur     ContentItemMode = "murmur"
+)
+
+// Valid indicates whether the value is a known member of the ContentItemMode enum.
+func (e ContentItemMode) Valid() bool {
+	switch e {
+	case ContentItemModeDiscussion:
+		return true
+	case ContentItemModeIdea:
+		return true
+	case ContentItemModeMurmur:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ContentItemParticipationPolicy.
+const (
+	ContentItemParticipationPolicyComment  ContentItemParticipationPolicy = "comment"
+	ContentItemParticipationPolicyDebate   ContentItemParticipationPolicy = "debate"
+	ContentItemParticipationPolicyReadOnly ContentItemParticipationPolicy = "read_only"
+)
+
+// Valid indicates whether the value is a known member of the ContentItemParticipationPolicy enum.
+func (e ContentItemParticipationPolicy) Valid() bool {
+	switch e {
+	case ContentItemParticipationPolicyComment:
+		return true
+	case ContentItemParticipationPolicyDebate:
+		return true
+	case ContentItemParticipationPolicyReadOnly:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ContentItemStatus.
+const (
+	ContentItemStatusActive   ContentItemStatus = "active"
+	ContentItemStatusArchived ContentItemStatus = "archived"
+	ContentItemStatusDraft    ContentItemStatus = "draft"
+)
+
+// Valid indicates whether the value is a known member of the ContentItemStatus enum.
+func (e ContentItemStatus) Valid() bool {
+	switch e {
+	case ContentItemStatusActive:
+		return true
+	case ContentItemStatusArchived:
+		return true
+	case ContentItemStatusDraft:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ContentItemVisibility.
+const (
+	ContentItemVisibilityPrivate  ContentItemVisibility = "private"
+	ContentItemVisibilityPublic   ContentItemVisibility = "public"
+	ContentItemVisibilityUnlisted ContentItemVisibility = "unlisted"
+)
+
+// Valid indicates whether the value is a known member of the ContentItemVisibility enum.
+func (e ContentItemVisibility) Valid() bool {
+	switch e {
+	case ContentItemVisibilityPrivate:
+		return true
+	case ContentItemVisibilityPublic:
+		return true
+	case ContentItemVisibilityUnlisted:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CreateContentItemRequestDiscussionShape.
+const (
+	CreateContentItemRequestDiscussionShapeDebateCards CreateContentItemRequestDiscussionShape = "debate_cards"
+	CreateContentItemRequestDiscussionShapeStanceMap   CreateContentItemRequestDiscussionShape = "stance_map"
+	CreateContentItemRequestDiscussionShapeThread      CreateContentItemRequestDiscussionShape = "thread"
+)
+
+// Valid indicates whether the value is a known member of the CreateContentItemRequestDiscussionShape enum.
+func (e CreateContentItemRequestDiscussionShape) Valid() bool {
+	switch e {
+	case CreateContentItemRequestDiscussionShapeDebateCards:
+		return true
+	case CreateContentItemRequestDiscussionShapeStanceMap:
+		return true
+	case CreateContentItemRequestDiscussionShapeThread:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CreateContentItemRequestMode.
+const (
+	CreateContentItemRequestModeDiscussion CreateContentItemRequestMode = "discussion"
+	CreateContentItemRequestModeIdea       CreateContentItemRequestMode = "idea"
+	CreateContentItemRequestModeMurmur     CreateContentItemRequestMode = "murmur"
+)
+
+// Valid indicates whether the value is a known member of the CreateContentItemRequestMode enum.
+func (e CreateContentItemRequestMode) Valid() bool {
+	switch e {
+	case CreateContentItemRequestModeDiscussion:
+		return true
+	case CreateContentItemRequestModeIdea:
+		return true
+	case CreateContentItemRequestModeMurmur:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CreateContentItemRequestParticipationPolicy.
+const (
+	CreateContentItemRequestParticipationPolicyComment  CreateContentItemRequestParticipationPolicy = "comment"
+	CreateContentItemRequestParticipationPolicyDebate   CreateContentItemRequestParticipationPolicy = "debate"
+	CreateContentItemRequestParticipationPolicyReadOnly CreateContentItemRequestParticipationPolicy = "read_only"
+)
+
+// Valid indicates whether the value is a known member of the CreateContentItemRequestParticipationPolicy enum.
+func (e CreateContentItemRequestParticipationPolicy) Valid() bool {
+	switch e {
+	case CreateContentItemRequestParticipationPolicyComment:
+		return true
+	case CreateContentItemRequestParticipationPolicyDebate:
+		return true
+	case CreateContentItemRequestParticipationPolicyReadOnly:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CreateContentItemRequestVisibility.
+const (
+	CreateContentItemRequestVisibilityPrivate  CreateContentItemRequestVisibility = "private"
+	CreateContentItemRequestVisibilityPublic   CreateContentItemRequestVisibility = "public"
+	CreateContentItemRequestVisibilityUnlisted CreateContentItemRequestVisibility = "unlisted"
+)
+
+// Valid indicates whether the value is a known member of the CreateContentItemRequestVisibility enum.
+func (e CreateContentItemRequestVisibility) Valid() bool {
+	switch e {
+	case CreateContentItemRequestVisibilityPrivate:
+		return true
+	case CreateContentItemRequestVisibilityPublic:
+		return true
+	case CreateContentItemRequestVisibilityUnlisted:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CreateDiscussionNodeRequestNodeType.
+const (
+	CreateDiscussionNodeRequestNodeTypeClaim    CreateDiscussionNodeRequestNodeType = "claim"
+	CreateDiscussionNodeRequestNodeTypeEvidence CreateDiscussionNodeRequestNodeType = "evidence"
+	CreateDiscussionNodeRequestNodeTypeQuestion CreateDiscussionNodeRequestNodeType = "question"
+	CreateDiscussionNodeRequestNodeTypeRebuttal CreateDiscussionNodeRequestNodeType = "rebuttal"
+	CreateDiscussionNodeRequestNodeTypeSummary  CreateDiscussionNodeRequestNodeType = "summary"
+)
+
+// Valid indicates whether the value is a known member of the CreateDiscussionNodeRequestNodeType enum.
+func (e CreateDiscussionNodeRequestNodeType) Valid() bool {
+	switch e {
+	case CreateDiscussionNodeRequestNodeTypeClaim:
+		return true
+	case CreateDiscussionNodeRequestNodeTypeEvidence:
+		return true
+	case CreateDiscussionNodeRequestNodeTypeQuestion:
+		return true
+	case CreateDiscussionNodeRequestNodeTypeRebuttal:
+		return true
+	case CreateDiscussionNodeRequestNodeTypeSummary:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CreateDiscussionNodeRequestStance.
+const (
+	CreateDiscussionNodeRequestStanceClarify CreateDiscussionNodeRequestStance = "clarify"
+	CreateDiscussionNodeRequestStanceNeutral CreateDiscussionNodeRequestStance = "neutral"
+	CreateDiscussionNodeRequestStanceOppose  CreateDiscussionNodeRequestStance = "oppose"
+	CreateDiscussionNodeRequestStanceSupport CreateDiscussionNodeRequestStance = "support"
+)
+
+// Valid indicates whether the value is a known member of the CreateDiscussionNodeRequestStance enum.
+func (e CreateDiscussionNodeRequestStance) Valid() bool {
+	switch e {
+	case CreateDiscussionNodeRequestStanceClarify:
+		return true
+	case CreateDiscussionNodeRequestStanceNeutral:
+		return true
+	case CreateDiscussionNodeRequestStanceOppose:
+		return true
+	case CreateDiscussionNodeRequestStanceSupport:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CreateModerationActionRequestActionType.
+const (
+	CreateModerationActionRequestActionTypeFlag  CreateModerationActionRequestActionType = "flag"
+	CreateModerationActionRequestActionTypeHide  CreateModerationActionRequestActionType = "hide"
+	CreateModerationActionRequestActionTypeLock  CreateModerationActionRequestActionType = "lock"
+	CreateModerationActionRequestActionTypeSlash CreateModerationActionRequestActionType = "slash"
+)
+
+// Valid indicates whether the value is a known member of the CreateModerationActionRequestActionType enum.
+func (e CreateModerationActionRequestActionType) Valid() bool {
+	switch e {
+	case CreateModerationActionRequestActionTypeFlag:
+		return true
+	case CreateModerationActionRequestActionTypeHide:
+		return true
+	case CreateModerationActionRequestActionTypeLock:
+		return true
+	case CreateModerationActionRequestActionTypeSlash:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CreateProjectionRequestDiscussionShape.
+const (
+	DebateCards CreateProjectionRequestDiscussionShape = "debate_cards"
+	StanceMap   CreateProjectionRequestDiscussionShape = "stance_map"
+	Thread      CreateProjectionRequestDiscussionShape = "thread"
+)
+
+// Valid indicates whether the value is a known member of the CreateProjectionRequestDiscussionShape enum.
+func (e CreateProjectionRequestDiscussionShape) Valid() bool {
+	switch e {
+	case DebateCards:
+		return true
+	case StanceMap:
+		return true
+	case Thread:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CreateProjectionRequestParticipationPolicy.
+const (
+	CreateProjectionRequestParticipationPolicyComment  CreateProjectionRequestParticipationPolicy = "comment"
+	CreateProjectionRequestParticipationPolicyDebate   CreateProjectionRequestParticipationPolicy = "debate"
+	CreateProjectionRequestParticipationPolicyReadOnly CreateProjectionRequestParticipationPolicy = "read_only"
+)
+
+// Valid indicates whether the value is a known member of the CreateProjectionRequestParticipationPolicy enum.
+func (e CreateProjectionRequestParticipationPolicy) Valid() bool {
+	switch e {
+	case CreateProjectionRequestParticipationPolicyComment:
+		return true
+	case CreateProjectionRequestParticipationPolicyDebate:
+		return true
+	case CreateProjectionRequestParticipationPolicyReadOnly:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CreateTransformationJobRequestProviderType.
+const (
+	CreateTransformationJobRequestProviderTypeByok      CreateTransformationJobRequestProviderType = "byok"
+	CreateTransformationJobRequestProviderTypeLocalLlm  CreateTransformationJobRequestProviderType = "local_llm"
+	CreateTransformationJobRequestProviderTypeSystemLlm CreateTransformationJobRequestProviderType = "system_llm"
+)
+
+// Valid indicates whether the value is a known member of the CreateTransformationJobRequestProviderType enum.
+func (e CreateTransformationJobRequestProviderType) Valid() bool {
+	switch e {
+	case CreateTransformationJobRequestProviderTypeByok:
+		return true
+	case CreateTransformationJobRequestProviderTypeLocalLlm:
+		return true
+	case CreateTransformationJobRequestProviderTypeSystemLlm:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CreateTransformationJobRequestTargetMode.
+const (
+	CreateTransformationJobRequestTargetModeDiscussion CreateTransformationJobRequestTargetMode = "discussion"
+	CreateTransformationJobRequestTargetModeIdea       CreateTransformationJobRequestTargetMode = "idea"
+	CreateTransformationJobRequestTargetModeMurmur     CreateTransformationJobRequestTargetMode = "murmur"
+)
+
+// Valid indicates whether the value is a known member of the CreateTransformationJobRequestTargetMode enum.
+func (e CreateTransformationJobRequestTargetMode) Valid() bool {
+	switch e {
+	case CreateTransformationJobRequestTargetModeDiscussion:
+		return true
+	case CreateTransformationJobRequestTargetModeIdea:
+		return true
+	case CreateTransformationJobRequestTargetModeMurmur:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CreateTrustedIssuerRequestStatus.
+const (
+	CreateTrustedIssuerRequestStatusActive    CreateTrustedIssuerRequestStatus = "active"
+	CreateTrustedIssuerRequestStatusExpired   CreateTrustedIssuerRequestStatus = "expired"
+	CreateTrustedIssuerRequestStatusRevoked   CreateTrustedIssuerRequestStatus = "revoked"
+	CreateTrustedIssuerRequestStatusSuspended CreateTrustedIssuerRequestStatus = "suspended"
+)
+
+// Valid indicates whether the value is a known member of the CreateTrustedIssuerRequestStatus enum.
+func (e CreateTrustedIssuerRequestStatus) Valid() bool {
+	switch e {
+	case CreateTrustedIssuerRequestStatusActive:
+		return true
+	case CreateTrustedIssuerRequestStatusExpired:
+		return true
+	case CreateTrustedIssuerRequestStatusRevoked:
+		return true
+	case CreateTrustedIssuerRequestStatusSuspended:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CreateVerifierDecisionRequestCredentialIssuanceSource.
+const (
+	CreateVerifierDecisionRequestCredentialIssuanceSourceExternalIssuerVerified CreateVerifierDecisionRequestCredentialIssuanceSource = "external_issuer_verified"
+	CreateVerifierDecisionRequestCredentialIssuanceSourceInternalVerifierIssued CreateVerifierDecisionRequestCredentialIssuanceSource = "internal_verifier_issued"
+)
+
+// Valid indicates whether the value is a known member of the CreateVerifierDecisionRequestCredentialIssuanceSource enum.
+func (e CreateVerifierDecisionRequestCredentialIssuanceSource) Valid() bool {
+	switch e {
+	case CreateVerifierDecisionRequestCredentialIssuanceSourceExternalIssuerVerified:
+		return true
+	case CreateVerifierDecisionRequestCredentialIssuanceSourceInternalVerifierIssued:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CreateVerifierDecisionRequestDecision.
+const (
+	CreateVerifierDecisionRequestDecisionApprove             CreateVerifierDecisionRequestDecision = "approve"
+	CreateVerifierDecisionRequestDecisionReject              CreateVerifierDecisionRequestDecision = "reject"
+	CreateVerifierDecisionRequestDecisionRequestMoreEvidence CreateVerifierDecisionRequestDecision = "request_more_evidence"
+)
+
+// Valid indicates whether the value is a known member of the CreateVerifierDecisionRequestDecision enum.
+func (e CreateVerifierDecisionRequestDecision) Valid() bool {
+	switch e {
+	case CreateVerifierDecisionRequestDecisionApprove:
+		return true
+	case CreateVerifierDecisionRequestDecisionReject:
+		return true
+	case CreateVerifierDecisionRequestDecisionRequestMoreEvidence:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CredentialIssuanceSource.
+const (
+	CredentialIssuanceSourceExternalIssuerVerified CredentialIssuanceSource = "external_issuer_verified"
+	CredentialIssuanceSourceInternalVerifierIssued CredentialIssuanceSource = "internal_verifier_issued"
+)
+
+// Valid indicates whether the value is a known member of the CredentialIssuanceSource enum.
+func (e CredentialIssuanceSource) Valid() bool {
+	switch e {
+	case CredentialIssuanceSourceExternalIssuerVerified:
+		return true
+	case CredentialIssuanceSourceInternalVerifierIssued:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for CredentialStatus.
+const (
+	CredentialStatusActive   CredentialStatus = "active"
+	CredentialStatusExpired  CredentialStatus = "expired"
+	CredentialStatusRejected CredentialStatus = "rejected"
+	CredentialStatusRevoked  CredentialStatus = "revoked"
+)
+
+// Valid indicates whether the value is a known member of the CredentialStatus enum.
+func (e CredentialStatus) Valid() bool {
+	switch e {
+	case CredentialStatusActive:
+		return true
+	case CredentialStatusExpired:
+		return true
+	case CredentialStatusRejected:
+		return true
+	case CredentialStatusRevoked:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DiscussionNodeNodeType.
+const (
+	DiscussionNodeNodeTypeClaim    DiscussionNodeNodeType = "claim"
+	DiscussionNodeNodeTypeEvidence DiscussionNodeNodeType = "evidence"
+	DiscussionNodeNodeTypeQuestion DiscussionNodeNodeType = "question"
+	DiscussionNodeNodeTypeRebuttal DiscussionNodeNodeType = "rebuttal"
+	DiscussionNodeNodeTypeSummary  DiscussionNodeNodeType = "summary"
+)
+
+// Valid indicates whether the value is a known member of the DiscussionNodeNodeType enum.
+func (e DiscussionNodeNodeType) Valid() bool {
+	switch e {
+	case DiscussionNodeNodeTypeClaim:
+		return true
+	case DiscussionNodeNodeTypeEvidence:
+		return true
+	case DiscussionNodeNodeTypeQuestion:
+		return true
+	case DiscussionNodeNodeTypeRebuttal:
+		return true
+	case DiscussionNodeNodeTypeSummary:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DiscussionNodeStance.
+const (
+	DiscussionNodeStanceClarify DiscussionNodeStance = "clarify"
+	DiscussionNodeStanceNeutral DiscussionNodeStance = "neutral"
+	DiscussionNodeStanceOppose  DiscussionNodeStance = "oppose"
+	DiscussionNodeStanceSupport DiscussionNodeStance = "support"
+)
+
+// Valid indicates whether the value is a known member of the DiscussionNodeStance enum.
+func (e DiscussionNodeStance) Valid() bool {
+	switch e {
+	case DiscussionNodeStanceClarify:
+		return true
+	case DiscussionNodeStanceNeutral:
+		return true
+	case DiscussionNodeStanceOppose:
+		return true
+	case DiscussionNodeStanceSupport:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ModerationActionActionType.
+const (
+	ModerationActionActionTypeFlag  ModerationActionActionType = "flag"
+	ModerationActionActionTypeHide  ModerationActionActionType = "hide"
+	ModerationActionActionTypeLock  ModerationActionActionType = "lock"
+	ModerationActionActionTypeSlash ModerationActionActionType = "slash"
+)
+
+// Valid indicates whether the value is a known member of the ModerationActionActionType enum.
+func (e ModerationActionActionType) Valid() bool {
+	switch e {
+	case ModerationActionActionTypeFlag:
+		return true
+	case ModerationActionActionTypeHide:
+		return true
+	case ModerationActionActionTypeLock:
+		return true
+	case ModerationActionActionTypeSlash:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ModerationActionStatus.
+const (
+	ModerationActionStatusApproved ModerationActionStatus = "approved"
+	ModerationActionStatusOpen     ModerationActionStatus = "open"
+)
+
+// Valid indicates whether the value is a known member of the ModerationActionStatus enum.
+func (e ModerationActionStatus) Valid() bool {
+	switch e {
+	case ModerationActionStatusApproved:
+		return true
+	case ModerationActionStatusOpen:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ProjectionParticipationPolicy.
+const (
+	ProjectionParticipationPolicyComment  ProjectionParticipationPolicy = "comment"
+	ProjectionParticipationPolicyDebate   ProjectionParticipationPolicy = "debate"
+	ProjectionParticipationPolicyReadOnly ProjectionParticipationPolicy = "read_only"
+)
+
+// Valid indicates whether the value is a known member of the ProjectionParticipationPolicy enum.
+func (e ProjectionParticipationPolicy) Valid() bool {
+	switch e {
+	case ProjectionParticipationPolicyComment:
+		return true
+	case ProjectionParticipationPolicyDebate:
+		return true
+	case ProjectionParticipationPolicyReadOnly:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TransformationJobProviderType.
+const (
+	TransformationJobProviderTypeByok      TransformationJobProviderType = "byok"
+	TransformationJobProviderTypeLocalLlm  TransformationJobProviderType = "local_llm"
+	TransformationJobProviderTypeSystemLlm TransformationJobProviderType = "system_llm"
+)
+
+// Valid indicates whether the value is a known member of the TransformationJobProviderType enum.
+func (e TransformationJobProviderType) Valid() bool {
+	switch e {
+	case TransformationJobProviderTypeByok:
+		return true
+	case TransformationJobProviderTypeLocalLlm:
+		return true
+	case TransformationJobProviderTypeSystemLlm:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TransformationJobStatus.
+const (
+	TransformationJobStatusCompleted TransformationJobStatus = "completed"
+	TransformationJobStatusDiscarded TransformationJobStatus = "discarded"
+	TransformationJobStatusFailed    TransformationJobStatus = "failed"
+	TransformationJobStatusPublished TransformationJobStatus = "published"
+	TransformationJobStatusQueued    TransformationJobStatus = "queued"
+	TransformationJobStatusRunning   TransformationJobStatus = "running"
+)
+
+// Valid indicates whether the value is a known member of the TransformationJobStatus enum.
+func (e TransformationJobStatus) Valid() bool {
+	switch e {
+	case TransformationJobStatusCompleted:
+		return true
+	case TransformationJobStatusDiscarded:
+		return true
+	case TransformationJobStatusFailed:
+		return true
+	case TransformationJobStatusPublished:
+		return true
+	case TransformationJobStatusQueued:
+		return true
+	case TransformationJobStatusRunning:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TransformationJobTargetMode.
+const (
+	TransformationJobTargetModeDiscussion TransformationJobTargetMode = "discussion"
+	TransformationJobTargetModeIdea       TransformationJobTargetMode = "idea"
+	TransformationJobTargetModeMurmur     TransformationJobTargetMode = "murmur"
+)
+
+// Valid indicates whether the value is a known member of the TransformationJobTargetMode enum.
+func (e TransformationJobTargetMode) Valid() bool {
+	switch e {
+	case TransformationJobTargetModeDiscussion:
+		return true
+	case TransformationJobTargetModeIdea:
+		return true
+	case TransformationJobTargetModeMurmur:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TrustAssessmentSource.
+const (
+	TrustAssessmentSourceCredential  TrustAssessmentSource = "credential"
+	TrustAssessmentSourceModeration  TrustAssessmentSource = "moderation"
+	TrustAssessmentSourceSocialGraph TrustAssessmentSource = "social_graph"
+	TrustAssessmentSourceSystem      TrustAssessmentSource = "system"
+	TrustAssessmentSourceVerifier    TrustAssessmentSource = "verifier"
+)
+
+// Valid indicates whether the value is a known member of the TrustAssessmentSource enum.
+func (e TrustAssessmentSource) Valid() bool {
+	switch e {
+	case TrustAssessmentSourceCredential:
+		return true
+	case TrustAssessmentSourceModeration:
+		return true
+	case TrustAssessmentSourceSocialGraph:
+		return true
+	case TrustAssessmentSourceSystem:
+		return true
+	case TrustAssessmentSourceVerifier:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for TrustedIssuerStatus.
+const (
+	TrustedIssuerStatusActive    TrustedIssuerStatus = "active"
+	TrustedIssuerStatusExpired   TrustedIssuerStatus = "expired"
+	TrustedIssuerStatusRevoked   TrustedIssuerStatus = "revoked"
+	TrustedIssuerStatusSuspended TrustedIssuerStatus = "suspended"
+)
+
+// Valid indicates whether the value is a known member of the TrustedIssuerStatus enum.
+func (e TrustedIssuerStatus) Valid() bool {
+	switch e {
+	case TrustedIssuerStatusActive:
+		return true
+	case TrustedIssuerStatusExpired:
+		return true
+	case TrustedIssuerStatusRevoked:
+		return true
+	case TrustedIssuerStatusSuspended:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for VerificationCaseStatus.
+const (
+	VerificationCaseStatusAppealed  VerificationCaseStatus = "appealed"
+	VerificationCaseStatusApproved  VerificationCaseStatus = "approved"
+	VerificationCaseStatusAssigned  VerificationCaseStatus = "assigned"
+	VerificationCaseStatusExpired   VerificationCaseStatus = "expired"
+	VerificationCaseStatusRejected  VerificationCaseStatus = "rejected"
+	VerificationCaseStatusSubmitted VerificationCaseStatus = "submitted"
+)
+
+// Valid indicates whether the value is a known member of the VerificationCaseStatus enum.
+func (e VerificationCaseStatus) Valid() bool {
+	switch e {
+	case VerificationCaseStatusAppealed:
+		return true
+	case VerificationCaseStatusApproved:
+		return true
+	case VerificationCaseStatusAssigned:
+		return true
+	case VerificationCaseStatusExpired:
+		return true
+	case VerificationCaseStatusRejected:
+		return true
+	case VerificationCaseStatusSubmitted:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for VerifierStatus.
+const (
+	Active    VerifierStatus = "active"
+	Expired   VerifierStatus = "expired"
+	Revoked   VerifierStatus = "revoked"
+	Suspended VerifierStatus = "suspended"
+)
+
+// Valid indicates whether the value is a known member of the VerifierStatus enum.
+func (e VerifierStatus) Valid() bool {
+	switch e {
+	case Active:
+		return true
+	case Expired:
+		return true
+	case Revoked:
+		return true
+	case Suspended:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for VerifierDecisionCredentialIssuanceSource.
+const (
+	ExternalIssuerVerified VerifierDecisionCredentialIssuanceSource = "external_issuer_verified"
+	InternalVerifierIssued VerifierDecisionCredentialIssuanceSource = "internal_verifier_issued"
+)
+
+// Valid indicates whether the value is a known member of the VerifierDecisionCredentialIssuanceSource enum.
+func (e VerifierDecisionCredentialIssuanceSource) Valid() bool {
+	switch e {
+	case ExternalIssuerVerified:
+		return true
+	case InternalVerifierIssued:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for VerifierDecisionDecision.
+const (
+	VerifierDecisionDecisionApprove             VerifierDecisionDecision = "approve"
+	VerifierDecisionDecisionReject              VerifierDecisionDecision = "reject"
+	VerifierDecisionDecisionRequestMoreEvidence VerifierDecisionDecision = "request_more_evidence"
+)
+
+// Valid indicates whether the value is a known member of the VerifierDecisionDecision enum.
+func (e VerifierDecisionDecision) Valid() bool {
+	switch e {
+	case VerifierDecisionDecisionApprove:
+		return true
+	case VerifierDecisionDecisionReject:
+		return true
+	case VerifierDecisionDecisionRequestMoreEvidence:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for WalletPresentationRequestStatus.
+const (
+	WalletPresentationRequestStatusCompleted WalletPresentationRequestStatus = "completed"
+	WalletPresentationRequestStatusExpired   WalletPresentationRequestStatus = "expired"
+	WalletPresentationRequestStatusPending   WalletPresentationRequestStatus = "pending"
+	WalletPresentationRequestStatusRejected  WalletPresentationRequestStatus = "rejected"
+	WalletPresentationRequestStatusVerified  WalletPresentationRequestStatus = "verified"
+)
+
+// Valid indicates whether the value is a known member of the WalletPresentationRequestStatus enum.
+func (e WalletPresentationRequestStatus) Valid() bool {
+	switch e {
+	case WalletPresentationRequestStatusCompleted:
+		return true
+	case WalletPresentationRequestStatusExpired:
+		return true
+	case WalletPresentationRequestStatusPending:
+		return true
+	case WalletPresentationRequestStatusRejected:
+		return true
+	case WalletPresentationRequestStatusVerified:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for WalletPresentationVerificationStatus.
+const (
+	Rejected WalletPresentationVerificationStatus = "rejected"
+	Verified WalletPresentationVerificationStatus = "verified"
+)
+
+// Valid indicates whether the value is a known member of the WalletPresentationVerificationStatus enum.
+func (e WalletPresentationVerificationStatus) Valid() bool {
+	switch e {
+	case Rejected:
+		return true
+	case Verified:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for GetV2ContentItemsParamsMode.
+const (
+	Discussion GetV2ContentItemsParamsMode = "discussion"
+	Idea       GetV2ContentItemsParamsMode = "idea"
+	Murmur     GetV2ContentItemsParamsMode = "murmur"
+)
+
+// Valid indicates whether the value is a known member of the GetV2ContentItemsParamsMode enum.
+func (e GetV2ContentItemsParamsMode) Valid() bool {
+	switch e {
+	case Discussion:
+		return true
+	case Idea:
+		return true
+	case Murmur:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for GetV2ContentItemsParamsVisibility.
+const (
+	Private  GetV2ContentItemsParamsVisibility = "private"
+	Public   GetV2ContentItemsParamsVisibility = "public"
+	Unlisted GetV2ContentItemsParamsVisibility = "unlisted"
+)
+
+// Valid indicates whether the value is a known member of the GetV2ContentItemsParamsVisibility enum.
+func (e GetV2ContentItemsParamsVisibility) Valid() bool {
+	switch e {
+	case Private:
+		return true
+	case Public:
+		return true
+	case Unlisted:
+		return true
+	default:
+		return false
+	}
+}
 
 // AuthSuccess defines model for AuthSuccess.
 type AuthSuccess struct {
@@ -19,6 +890,118 @@ type AuthSuccess struct {
 	// TrustTier Trust level 1-4
 	TrustTier int `json:"trustTier"`
 }
+
+// CapabilitySnapshot defines model for CapabilitySnapshot.
+type CapabilitySnapshot struct {
+	CanCreateDiscussion        bool `json:"canCreateDiscussion"`
+	CanCreateIdea              bool `json:"canCreateIdea"`
+	CanCreateMurmur            bool `json:"canCreateMurmur"`
+	CanFlagContent             bool `json:"canFlagContent"`
+	CanForkDiscussion          bool `json:"canForkDiscussion"`
+	CanModerate                bool `json:"canModerate"`
+	CanReplyToDiscussion       bool `json:"canReplyToDiscussion"`
+	CanRequestVerification     bool `json:"canRequestVerification"`
+	CanReviewVerificationCases bool `json:"canReviewVerificationCases"`
+	CanSlashContent            bool `json:"canSlashContent"`
+}
+
+// CompleteWalletPresentationRequest defines model for CompleteWalletPresentationRequest.
+type CompleteWalletPresentationRequest struct {
+	Audience           string     `json:"audience"`
+	ClaimsJson         string     `json:"claimsJson"`
+	CredentialType     string     `json:"credentialType"`
+	ExpiresAt          *time.Time `json:"expiresAt,omitempty"`
+	IssuerDid          string     `json:"issuerDid"`
+	Nonce              string     `json:"nonce"`
+	PresentationFormat string     `json:"presentationFormat"`
+	Proof              string     `json:"proof"`
+	RevokedAt          *time.Time `json:"revokedAt,omitempty"`
+}
+
+// ContentItem defines model for ContentItem.
+type ContentItem struct {
+	AuthorDid           string                          `json:"authorDid"`
+	Body                string                          `json:"body"`
+	CreatedAt           time.Time                       `json:"createdAt"`
+	DiscussionShape     *ContentItemDiscussionShape     `json:"discussionShape,omitempty"`
+	Id                  string                          `json:"id"`
+	Mode                ContentItemMode                 `json:"mode"`
+	ParticipationPolicy *ContentItemParticipationPolicy `json:"participationPolicy,omitempty"`
+	PublishedAt         *time.Time                      `json:"publishedAt,omitempty"`
+	SourceContentIds    *[]string                       `json:"sourceContentIds,omitempty"`
+	Status              ContentItemStatus               `json:"status"`
+	Title               *string                         `json:"title,omitempty"`
+	TrustTier           *int                            `json:"trustTier,omitempty"`
+	UpdatedAt           time.Time                       `json:"updatedAt"`
+	Visibility          ContentItemVisibility           `json:"visibility"`
+}
+
+// ContentItemDiscussionShape defines model for ContentItem.DiscussionShape.
+type ContentItemDiscussionShape string
+
+// ContentItemMode defines model for ContentItem.Mode.
+type ContentItemMode string
+
+// ContentItemParticipationPolicy defines model for ContentItem.ParticipationPolicy.
+type ContentItemParticipationPolicy string
+
+// ContentItemStatus defines model for ContentItem.Status.
+type ContentItemStatus string
+
+// ContentItemVisibility defines model for ContentItem.Visibility.
+type ContentItemVisibility string
+
+// CreateContentItemRequest defines model for CreateContentItemRequest.
+type CreateContentItemRequest struct {
+	Body                string                                       `json:"body"`
+	DiscussionShape     *CreateContentItemRequestDiscussionShape     `json:"discussionShape,omitempty"`
+	Mode                CreateContentItemRequestMode                 `json:"mode"`
+	ParticipationPolicy *CreateContentItemRequestParticipationPolicy `json:"participationPolicy,omitempty"`
+	SourceContentIds    *[]string                                    `json:"sourceContentIds,omitempty"`
+	Title               *string                                      `json:"title,omitempty"`
+	Visibility          *CreateContentItemRequestVisibility          `json:"visibility,omitempty"`
+}
+
+// CreateContentItemRequestDiscussionShape defines model for CreateContentItemRequest.DiscussionShape.
+type CreateContentItemRequestDiscussionShape string
+
+// CreateContentItemRequestMode defines model for CreateContentItemRequest.Mode.
+type CreateContentItemRequestMode string
+
+// CreateContentItemRequestParticipationPolicy defines model for CreateContentItemRequest.ParticipationPolicy.
+type CreateContentItemRequestParticipationPolicy string
+
+// CreateContentItemRequestVisibility defines model for CreateContentItemRequest.Visibility.
+type CreateContentItemRequestVisibility string
+
+// CreateDiscussionForkRequest defines model for CreateDiscussionForkRequest.
+type CreateDiscussionForkRequest struct {
+	Reason string `json:"reason"`
+}
+
+// CreateDiscussionNodeRequest defines model for CreateDiscussionNodeRequest.
+type CreateDiscussionNodeRequest struct {
+	Body         string                              `json:"body"`
+	NodeType     CreateDiscussionNodeRequestNodeType `json:"nodeType"`
+	ParentNodeId *string                             `json:"parentNodeId,omitempty"`
+	Stance       CreateDiscussionNodeRequestStance   `json:"stance"`
+}
+
+// CreateDiscussionNodeRequestNodeType defines model for CreateDiscussionNodeRequest.NodeType.
+type CreateDiscussionNodeRequestNodeType string
+
+// CreateDiscussionNodeRequestStance defines model for CreateDiscussionNodeRequest.Stance.
+type CreateDiscussionNodeRequestStance string
+
+// CreateModerationActionRequest defines model for CreateModerationActionRequest.
+type CreateModerationActionRequest struct {
+	ActionType      CreateModerationActionRequestActionType `json:"actionType"`
+	Reason          string                                  `json:"reason"`
+	TargetContentId string                                  `json:"targetContentId"`
+}
+
+// CreateModerationActionRequestActionType defines model for CreateModerationActionRequest.ActionType.
+type CreateModerationActionRequestActionType string
 
 // CreatePostRequest defines model for CreatePostRequest.
 type CreatePostRequest struct {
@@ -41,11 +1024,166 @@ type CreatePostRequest struct {
 	Timestamp int `json:"timestamp"`
 }
 
+// CreateProjectionRequest defines model for CreateProjectionRequest.
+type CreateProjectionRequest struct {
+	DiscussionShape               *CreateProjectionRequestDiscussionShape    `json:"discussionShape,omitempty"`
+	OwnershipTransferAcknowledged bool                                       `json:"ownershipTransferAcknowledged"`
+	ParticipationPolicy           CreateProjectionRequestParticipationPolicy `json:"participationPolicy"`
+	ProjectedExcerpt              string                                     `json:"projectedExcerpt"`
+	SourceIdeaId                  string                                     `json:"sourceIdeaId"`
+}
+
+// CreateProjectionRequestDiscussionShape defines model for CreateProjectionRequest.DiscussionShape.
+type CreateProjectionRequestDiscussionShape string
+
+// CreateProjectionRequestParticipationPolicy defines model for CreateProjectionRequest.ParticipationPolicy.
+type CreateProjectionRequestParticipationPolicy string
+
+// CreateTransformationJobRequest defines model for CreateTransformationJobRequest.
+type CreateTransformationJobRequest struct {
+	PromptProfile    *string                                    `json:"promptProfile,omitempty"`
+	ProviderType     CreateTransformationJobRequestProviderType `json:"providerType"`
+	SourceContentIds []string                                   `json:"sourceContentIds"`
+	TargetMode       CreateTransformationJobRequestTargetMode   `json:"targetMode"`
+}
+
+// CreateTransformationJobRequestProviderType defines model for CreateTransformationJobRequest.ProviderType.
+type CreateTransformationJobRequestProviderType string
+
+// CreateTransformationJobRequestTargetMode defines model for CreateTransformationJobRequest.TargetMode.
+type CreateTransformationJobRequestTargetMode string
+
+// CreateTrustedIssuerRequest defines model for CreateTrustedIssuerRequest.
+type CreateTrustedIssuerRequest struct {
+	CredentialTypes    []string                          `json:"credentialTypes"`
+	ExpiresAt          *time.Time                        `json:"expiresAt,omitempty"`
+	IssuerDid          string                            `json:"issuerDid"`
+	IssuerName         string                            `json:"issuerName"`
+	MaxTrustTierIssued int                               `json:"maxTrustTierIssued"`
+	Scopes             []string                          `json:"scopes"`
+	Status             *CreateTrustedIssuerRequestStatus `json:"status,omitempty"`
+}
+
+// CreateTrustedIssuerRequestStatus defines model for CreateTrustedIssuerRequest.Status.
+type CreateTrustedIssuerRequestStatus string
+
+// CreateVerificationCaseRequest defines model for CreateVerificationCaseRequest.
+type CreateVerificationCaseRequest struct {
+	CredentialType string `json:"credentialType"`
+	EvidenceJson   string `json:"evidenceJson"`
+	RequestedTier  int    `json:"requestedTier"`
+}
+
+// CreateVerifierDecisionRequest defines model for CreateVerifierDecisionRequest.
+type CreateVerifierDecisionRequest struct {
+	CredentialIssuanceSource CreateVerifierDecisionRequestCredentialIssuanceSource `json:"credentialIssuanceSource"`
+	Decision                 CreateVerifierDecisionRequestDecision                 `json:"decision"`
+	ExternalIssuerDid        *string                                               `json:"externalIssuerDid,omitempty"`
+	Reason                   string                                                `json:"reason"`
+}
+
+// CreateVerifierDecisionRequestCredentialIssuanceSource defines model for CreateVerifierDecisionRequest.CredentialIssuanceSource.
+type CreateVerifierDecisionRequestCredentialIssuanceSource string
+
+// CreateVerifierDecisionRequestDecision defines model for CreateVerifierDecisionRequest.Decision.
+type CreateVerifierDecisionRequestDecision string
+
+// CreateWalletPresentationRequest defines model for CreateWalletPresentationRequest.
+type CreateWalletPresentationRequest struct {
+	AllowedIssuerDids *[]string `json:"allowedIssuerDids,omitempty"`
+	CredentialType    string    `json:"credentialType"`
+	ExpiresInMinutes  *int      `json:"expiresInMinutes,omitempty"`
+	Purpose           *string   `json:"purpose,omitempty"`
+	RequestedTier     int       `json:"requestedTier"`
+}
+
+// Credential defines model for Credential.
+type Credential struct {
+	ClaimsJson        string                   `json:"claimsJson"`
+	CredentialType    string                   `json:"credentialType"`
+	ExpiresAt         *time.Time               `json:"expiresAt,omitempty"`
+	ExternalIssuerDid *string                  `json:"externalIssuerDid,omitempty"`
+	Id                string                   `json:"id"`
+	IssuanceSource    CredentialIssuanceSource `json:"issuanceSource"`
+	IssuedAt          time.Time                `json:"issuedAt"`
+	IssuerDid         string                   `json:"issuerDid"`
+	Proof             *string                  `json:"proof,omitempty"`
+	RevokedAt         *time.Time               `json:"revokedAt,omitempty"`
+	Status            CredentialStatus         `json:"status"`
+	SubjectDid        string                   `json:"subjectDid"`
+}
+
+// CredentialIssuanceSource defines model for Credential.IssuanceSource.
+type CredentialIssuanceSource string
+
+// CredentialStatus defines model for Credential.Status.
+type CredentialStatus string
+
+// DiscussionFork defines model for DiscussionFork.
+type DiscussionFork struct {
+	CreatedAt          time.Time `json:"createdAt"`
+	CreatedByDid       string    `json:"createdByDid"`
+	ForkDiscussionId   string    `json:"forkDiscussionId"`
+	Id                 string    `json:"id"`
+	Reason             string    `json:"reason"`
+	SourceDiscussionId string    `json:"sourceDiscussionId"`
+}
+
+// DiscussionNode defines model for DiscussionNode.
+type DiscussionNode struct {
+	AuthorDid    string                 `json:"authorDid"`
+	Body         string                 `json:"body"`
+	CreatedAt    time.Time              `json:"createdAt"`
+	DiscussionId string                 `json:"discussionId"`
+	Id           string                 `json:"id"`
+	NodeType     DiscussionNodeNodeType `json:"nodeType"`
+	ParentNodeId *string                `json:"parentNodeId,omitempty"`
+	Stance       DiscussionNodeStance   `json:"stance"`
+}
+
+// DiscussionNodeNodeType defines model for DiscussionNode.NodeType.
+type DiscussionNodeNodeType string
+
+// DiscussionNodeStance defines model for DiscussionNode.Stance.
+type DiscussionNodeStance string
+
+// Identity defines model for Identity.
+type Identity struct {
+	AuthMethod  *string `json:"authMethod,omitempty"`
+	Did         string  `json:"did"`
+	DisplayName string  `json:"displayName"`
+	TrustTier   int     `json:"trustTier"`
+}
+
 // LoginOptions Defines the challenge for browser Passkey login.
 type LoginOptions map[string]interface{}
 
 // LoginResponse The response from the browser Passkey API during login.
 type LoginResponse map[string]interface{}
+
+// MeResponse defines model for MeResponse.
+type MeResponse struct {
+	Capabilities CapabilitySnapshot `json:"capabilities"`
+	Identity     Identity           `json:"identity"`
+}
+
+// ModerationAction defines model for ModerationAction.
+type ModerationAction struct {
+	ActionType      ModerationActionActionType `json:"actionType"`
+	CreatedAt       time.Time                  `json:"createdAt"`
+	Id              string                     `json:"id"`
+	InitiatedByDid  string                     `json:"initiatedByDid"`
+	Reason          string                     `json:"reason"`
+	RequiredTier    int                        `json:"requiredTier"`
+	Status          ModerationActionStatus     `json:"status"`
+	TargetContentId string                     `json:"targetContentId"`
+}
+
+// ModerationActionActionType defines model for ModerationAction.ActionType.
+type ModerationActionActionType string
+
+// ModerationActionStatus defines model for ModerationAction.Status.
+type ModerationActionStatus string
 
 // OAuthRequest defines model for OAuthRequest.
 type OAuthRequest struct {
@@ -70,17 +1208,230 @@ type Post struct {
 	VisibilityScore *float32 `json:"visibilityScore,omitempty"`
 }
 
+// Projection defines model for Projection.
+type Projection struct {
+	CreatedAt                     time.Time                     `json:"createdAt"`
+	CreatedByDid                  string                        `json:"createdByDid"`
+	Id                            string                        `json:"id"`
+	OwnershipTransferAcknowledged bool                          `json:"ownershipTransferAcknowledged"`
+	ParticipationPolicy           ProjectionParticipationPolicy `json:"participationPolicy"`
+	ProjectedExcerpt              string                        `json:"projectedExcerpt"`
+	SourceIdeaId                  string                        `json:"sourceIdeaId"`
+	TargetDiscussionId            string                        `json:"targetDiscussionId"`
+}
+
+// ProjectionParticipationPolicy defines model for Projection.ParticipationPolicy.
+type ProjectionParticipationPolicy string
+
 // RegistrationOptions Defines the challenge and configuration for browser Passkey registration.
 type RegistrationOptions map[string]interface{}
 
 // RegistrationResponse The response from the browser Passkey API during registration.
 type RegistrationResponse map[string]interface{}
 
+// TransformationJob defines model for TransformationJob.
+type TransformationJob struct {
+	CompletedAt        *time.Time                    `json:"completedAt,omitempty"`
+	CreatedAt          time.Time                     `json:"createdAt"`
+	Id                 string                        `json:"id"`
+	OutputBody         *string                       `json:"outputBody,omitempty"`
+	OutputTitle        *string                       `json:"outputTitle,omitempty"`
+	PromptProfile      string                        `json:"promptProfile"`
+	ProviderType       TransformationJobProviderType `json:"providerType"`
+	PublishedContentId *string                       `json:"publishedContentId,omitempty"`
+	RequestedByDid     string                        `json:"requestedByDid"`
+	SourceContentIds   []string                      `json:"sourceContentIds"`
+	Status             TransformationJobStatus       `json:"status"`
+	TargetMode         TransformationJobTargetMode   `json:"targetMode"`
+}
+
+// TransformationJobProviderType defines model for TransformationJob.ProviderType.
+type TransformationJobProviderType string
+
+// TransformationJobStatus defines model for TransformationJob.Status.
+type TransformationJobStatus string
+
+// TransformationJobTargetMode defines model for TransformationJob.TargetMode.
+type TransformationJobTargetMode string
+
+// TrustAssessment defines model for TrustAssessment.
+type TrustAssessment struct {
+	EffectiveAt  time.Time             `json:"effectiveAt"`
+	EvidenceRefs *[]string             `json:"evidenceRefs,omitempty"`
+	ExpiresAt    *time.Time            `json:"expiresAt,omitempty"`
+	Id           string                `json:"id"`
+	IssuedByDid  string                `json:"issuedByDid"`
+	RevokedAt    *time.Time            `json:"revokedAt,omitempty"`
+	Score        float32               `json:"score"`
+	Source       TrustAssessmentSource `json:"source"`
+	SubjectDid   string                `json:"subjectDid"`
+	Tier         int                   `json:"tier"`
+}
+
+// TrustAssessmentSource defines model for TrustAssessment.Source.
+type TrustAssessmentSource string
+
+// TrustAuditLog defines model for TrustAuditLog.
+type TrustAuditLog struct {
+	ActionType       string    `json:"actionType"`
+	ActorDid         string    `json:"actorDid"`
+	CreatedAt        time.Time `json:"createdAt"`
+	Id               string    `json:"id"`
+	MetadataJson     *string   `json:"metadataJson,omitempty"`
+	TargetDid        *string   `json:"targetDid,omitempty"`
+	TargetResourceId *string   `json:"targetResourceId,omitempty"`
+}
+
+// TrustProfile defines model for TrustProfile.
+type TrustProfile struct {
+	AuditLogs         []TrustAuditLog    `json:"auditLogs"`
+	Capabilities      CapabilitySnapshot `json:"capabilities"`
+	Credentials       []Credential       `json:"credentials"`
+	Identity          Identity           `json:"identity"`
+	TrustAssessments  []TrustAssessment  `json:"trustAssessments"`
+	VerificationCases []VerificationCase `json:"verificationCases"`
+	Verifier          *Verifier          `json:"verifier,omitempty"`
+}
+
+// TrustedIssuer defines model for TrustedIssuer.
+type TrustedIssuer struct {
+	AppointedByDid     string              `json:"appointedByDid"`
+	CreatedAt          time.Time           `json:"createdAt"`
+	CredentialTypes    []string            `json:"credentialTypes"`
+	ExpiresAt          *time.Time          `json:"expiresAt,omitempty"`
+	Id                 string              `json:"id"`
+	IssuerDid          string              `json:"issuerDid"`
+	IssuerName         string              `json:"issuerName"`
+	MaxTrustTierIssued int                 `json:"maxTrustTierIssued"`
+	RevokedAt          *time.Time          `json:"revokedAt,omitempty"`
+	Scopes             []string            `json:"scopes"`
+	Status             TrustedIssuerStatus `json:"status"`
+}
+
+// TrustedIssuerStatus defines model for TrustedIssuer.Status.
+type TrustedIssuerStatus string
+
+// VerificationCase defines model for VerificationCase.
+type VerificationCase struct {
+	AssignedVerifierDid *string                `json:"assignedVerifierDid,omitempty"`
+	CreatedAt           time.Time              `json:"createdAt"`
+	CredentialType      string                 `json:"credentialType"`
+	DecidedAt           *time.Time             `json:"decidedAt,omitempty"`
+	Decision            *string                `json:"decision,omitempty"`
+	DecisionReason      *string                `json:"decisionReason,omitempty"`
+	EvidenceJson        string                 `json:"evidenceJson"`
+	Id                  string                 `json:"id"`
+	RequestedTier       int                    `json:"requestedTier"`
+	Status              VerificationCaseStatus `json:"status"`
+	SubjectDid          string                 `json:"subjectDid"`
+}
+
+// VerificationCaseStatus defines model for VerificationCase.Status.
+type VerificationCaseStatus string
+
+// Verifier defines model for Verifier.
+type Verifier struct {
+	AppointedByDid string         `json:"appointedByDid"`
+	AuthorityLevel int            `json:"authorityLevel"`
+	CreatedAt      time.Time      `json:"createdAt"`
+	ExpiresAt      *time.Time     `json:"expiresAt,omitempty"`
+	Id             string         `json:"id"`
+	RevokedAt      *time.Time     `json:"revokedAt,omitempty"`
+	Scope          string         `json:"scope"`
+	Status         VerifierStatus `json:"status"`
+	VerifierDid    string         `json:"verifierDid"`
+	VerifierType   string         `json:"verifierType"`
+}
+
+// VerifierStatus defines model for Verifier.Status.
+type VerifierStatus string
+
+// VerifierDecision defines model for VerifierDecision.
+type VerifierDecision struct {
+	CaseId                   string                                   `json:"caseId"`
+	CreatedAt                time.Time                                `json:"createdAt"`
+	CredentialIssuanceSource VerifierDecisionCredentialIssuanceSource `json:"credentialIssuanceSource"`
+	Decision                 VerifierDecisionDecision                 `json:"decision"`
+	ExternalIssuerDid        *string                                  `json:"externalIssuerDid,omitempty"`
+	Id                       string                                   `json:"id"`
+	IssuedAssessmentId       *string                                  `json:"issuedAssessmentId,omitempty"`
+	IssuedCredentialId       *string                                  `json:"issuedCredentialId,omitempty"`
+	Reason                   string                                   `json:"reason"`
+	VerifierDid              string                                   `json:"verifierDid"`
+}
+
+// VerifierDecisionCredentialIssuanceSource defines model for VerifierDecision.CredentialIssuanceSource.
+type VerifierDecisionCredentialIssuanceSource string
+
+// VerifierDecisionDecision defines model for VerifierDecision.Decision.
+type VerifierDecisionDecision string
+
+// WalletPresentationRequest defines model for WalletPresentationRequest.
+type WalletPresentationRequest struct {
+	AllowedIssuerDids []string                        `json:"allowedIssuerDids"`
+	Challenge         string                          `json:"challenge"`
+	CompletedAt       *time.Time                      `json:"completedAt,omitempty"`
+	CreatedAt         time.Time                       `json:"createdAt"`
+	CredentialType    string                          `json:"credentialType"`
+	ExpiresAt         *time.Time                      `json:"expiresAt,omitempty"`
+	Id                string                          `json:"id"`
+	Purpose           *string                         `json:"purpose,omitempty"`
+	QrPayload         string                          `json:"qrPayload"`
+	RequestUri        string                          `json:"requestUri"`
+	RequestedTier     int                             `json:"requestedTier"`
+	Status            WalletPresentationRequestStatus `json:"status"`
+	SubjectDid        string                          `json:"subjectDid"`
+	Verification      *WalletPresentationVerification `json:"verification,omitempty"`
+	VerifierDid       string                          `json:"verifierDid"`
+}
+
+// WalletPresentationRequestStatus defines model for WalletPresentationRequest.Status.
+type WalletPresentationRequestStatus string
+
+// WalletPresentationVerification defines model for WalletPresentationVerification.
+type WalletPresentationVerification struct {
+	Audience           string                               `json:"audience"`
+	ClaimsJson         string                               `json:"claimsJson"`
+	CreatedAt          time.Time                            `json:"createdAt"`
+	CredentialType     string                               `json:"credentialType"`
+	Id                 string                               `json:"id"`
+	IssuedAssessmentId *string                              `json:"issuedAssessmentId,omitempty"`
+	IssuedCredentialId *string                              `json:"issuedCredentialId,omitempty"`
+	IssuerDid          string                               `json:"issuerDid"`
+	Nonce              string                               `json:"nonce"`
+	Notes              *string                              `json:"notes,omitempty"`
+	PresentationFormat string                               `json:"presentationFormat"`
+	Proof              string                               `json:"proof"`
+	RequestId          string                               `json:"requestId"`
+	Status             WalletPresentationVerificationStatus `json:"status"`
+	SubjectDid         string                               `json:"subjectDid"`
+	TrustedIssuerDid   *string                              `json:"trustedIssuerDid,omitempty"`
+	VerifiedAt         *time.Time                           `json:"verifiedAt,omitempty"`
+}
+
+// WalletPresentationVerificationStatus defines model for WalletPresentationVerification.Status.
+type WalletPresentationVerificationStatus string
+
 // GetPostsParams defines parameters for GetPosts.
 type GetPostsParams struct {
 	Limit  *int `form:"limit,omitempty" json:"limit,omitempty"`
 	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
 }
+
+// GetV2ContentItemsParams defines parameters for GetV2ContentItems.
+type GetV2ContentItemsParams struct {
+	Mode       *GetV2ContentItemsParamsMode       `form:"mode,omitempty" json:"mode,omitempty"`
+	Visibility *GetV2ContentItemsParamsVisibility `form:"visibility,omitempty" json:"visibility,omitempty"`
+	AuthorDid  *string                            `form:"authorDid,omitempty" json:"authorDid,omitempty"`
+	Limit      *int                               `form:"limit,omitempty" json:"limit,omitempty"`
+	Offset     *int                               `form:"offset,omitempty" json:"offset,omitempty"`
+}
+
+// GetV2ContentItemsParamsMode defines parameters for GetV2ContentItems.
+type GetV2ContentItemsParamsMode string
+
+// GetV2ContentItemsParamsVisibility defines parameters for GetV2ContentItems.
+type GetV2ContentItemsParamsVisibility string
 
 // PostAuthLoginJSONRequestBody defines body for PostAuthLogin for application/json ContentType.
 type PostAuthLoginJSONRequestBody = LoginResponse
@@ -93,6 +1444,39 @@ type PostAuthRegisterJSONRequestBody = RegistrationResponse
 
 // PostPostsJSONRequestBody defines body for PostPosts for application/json ContentType.
 type PostPostsJSONRequestBody = CreatePostRequest
+
+// PostV2ContentItemsJSONRequestBody defines body for PostV2ContentItems for application/json ContentType.
+type PostV2ContentItemsJSONRequestBody = CreateContentItemRequest
+
+// PostV2DiscussionsDiscussionIdForksJSONRequestBody defines body for PostV2DiscussionsDiscussionIdForks for application/json ContentType.
+type PostV2DiscussionsDiscussionIdForksJSONRequestBody = CreateDiscussionForkRequest
+
+// PostV2DiscussionsDiscussionIdNodesJSONRequestBody defines body for PostV2DiscussionsDiscussionIdNodes for application/json ContentType.
+type PostV2DiscussionsDiscussionIdNodesJSONRequestBody = CreateDiscussionNodeRequest
+
+// PostV2ModerationActionsJSONRequestBody defines body for PostV2ModerationActions for application/json ContentType.
+type PostV2ModerationActionsJSONRequestBody = CreateModerationActionRequest
+
+// PostV2ProjectionsJSONRequestBody defines body for PostV2Projections for application/json ContentType.
+type PostV2ProjectionsJSONRequestBody = CreateProjectionRequest
+
+// PostV2TransformationJobsJSONRequestBody defines body for PostV2TransformationJobs for application/json ContentType.
+type PostV2TransformationJobsJSONRequestBody = CreateTransformationJobRequest
+
+// PostV2TrustIssuersJSONRequestBody defines body for PostV2TrustIssuers for application/json ContentType.
+type PostV2TrustIssuersJSONRequestBody = CreateTrustedIssuerRequest
+
+// PostV2TrustPresentationRequestsJSONRequestBody defines body for PostV2TrustPresentationRequests for application/json ContentType.
+type PostV2TrustPresentationRequestsJSONRequestBody = CreateWalletPresentationRequest
+
+// PostV2TrustPresentationRequestsRequestIdCompleteJSONRequestBody defines body for PostV2TrustPresentationRequestsRequestIdComplete for application/json ContentType.
+type PostV2TrustPresentationRequestsRequestIdCompleteJSONRequestBody = CompleteWalletPresentationRequest
+
+// PostV2TrustVerificationCasesJSONRequestBody defines body for PostV2TrustVerificationCases for application/json ContentType.
+type PostV2TrustVerificationCasesJSONRequestBody = CreateVerificationCaseRequest
+
+// PostV2TrustVerifierCasesCaseIdDecisionJSONRequestBody defines body for PostV2TrustVerifierCasesCaseIdDecision for application/json ContentType.
+type PostV2TrustVerifierCasesCaseIdDecisionJSONRequestBody = CreateVerifierDecisionRequest
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
@@ -117,6 +1501,78 @@ type ServerInterface interface {
 	// Create a new signed post
 	// (POST /posts)
 	PostPosts(w http.ResponseWriter, r *http.Request)
+	// List content items across modes
+	// (GET /v2/content-items)
+	GetV2ContentItems(w http.ResponseWriter, r *http.Request, params GetV2ContentItemsParams)
+	// Create a content item in murmur, idea, or discussion mode
+	// (POST /v2/content-items)
+	PostV2ContentItems(w http.ResponseWriter, r *http.Request)
+	// Get a content item by id
+	// (GET /v2/content-items/{contentItemId})
+	GetV2ContentItemsContentItemId(w http.ResponseWriter, r *http.Request, contentItemId string)
+	// Fork a public discussion into a derivative community branch
+	// (POST /v2/discussions/{discussionId}/forks)
+	PostV2DiscussionsDiscussionIdForks(w http.ResponseWriter, r *http.Request, discussionId string)
+	// List discussion nodes for a discussion
+	// (GET /v2/discussions/{discussionId}/nodes)
+	GetV2DiscussionsDiscussionIdNodes(w http.ResponseWriter, r *http.Request, discussionId string)
+	// Create a discussion node
+	// (POST /v2/discussions/{discussionId}/nodes)
+	PostV2DiscussionsDiscussionIdNodes(w http.ResponseWriter, r *http.Request, discussionId string)
+	// Get current authenticated identity and capability snapshot
+	// (GET /v2/me)
+	GetV2Me(w http.ResponseWriter, r *http.Request)
+	// Create a moderation action on public content
+	// (POST /v2/moderation-actions)
+	PostV2ModerationActions(w http.ResponseWriter, r *http.Request)
+	// Project an idea into a discussion with ownership transfer acknowledgement
+	// (POST /v2/projections)
+	PostV2Projections(w http.ResponseWriter, r *http.Request)
+	// Create an AI transformation job
+	// (POST /v2/transformation-jobs)
+	PostV2TransformationJobs(w http.ResponseWriter, r *http.Request)
+	// Get a transformation job by id
+	// (GET /v2/transformation-jobs/{jobId})
+	GetV2TransformationJobsJobId(w http.ResponseWriter, r *http.Request, jobId string)
+	// Publish the output of a completed transformation job
+	// (POST /v2/transformation-jobs/{jobId}/publish)
+	PostV2TransformationJobsJobIdPublish(w http.ResponseWriter, r *http.Request, jobId string)
+	// List trusted issuers
+	// (GET /v2/trust/issuers)
+	GetV2TrustIssuers(w http.ResponseWriter, r *http.Request)
+	// Register or update a trusted issuer
+	// (POST /v2/trust/issuers)
+	PostV2TrustIssuers(w http.ResponseWriter, r *http.Request)
+	// Get current trust profile
+	// (GET /v2/trust/me)
+	GetV2TrustMe(w http.ResponseWriter, r *http.Request)
+	// List wallet presentation requests
+	// (GET /v2/trust/presentation-requests)
+	GetV2TrustPresentationRequests(w http.ResponseWriter, r *http.Request)
+	// Create a wallet presentation request
+	// (POST /v2/trust/presentation-requests)
+	PostV2TrustPresentationRequests(w http.ResponseWriter, r *http.Request)
+	// Get a wallet presentation request
+	// (GET /v2/trust/presentation-requests/{requestId})
+	GetV2TrustPresentationRequestsRequestId(w http.ResponseWriter, r *http.Request, requestId string)
+	// Complete a wallet presentation request
+	// (POST /v2/trust/presentation-requests/{requestId}/complete)
+	PostV2TrustPresentationRequestsRequestIdComplete(w http.ResponseWriter, r *http.Request, requestId string)
+	// Submit a verification case for L2-L3 review
+	// (POST /v2/trust/verification-cases)
+	PostV2TrustVerificationCases(w http.ResponseWriter, r *http.Request)
+	// Get a verification case
+	// (GET /v2/trust/verification-cases/{caseId})
+	GetV2TrustVerificationCasesCaseId(w http.ResponseWriter, r *http.Request, caseId string)
+	// List verification cases visible to the current verifier
+	// (GET /v2/trust/verifier/cases)
+	GetV2TrustVerifierCases(w http.ResponseWriter, r *http.Request)
+	// Submit a verifier decision
+	// (POST /v2/trust/verifier/cases/{caseId}/decision)
+	PostV2TrustVerifierCasesCaseIdDecision(w http.ResponseWriter, r *http.Request, caseId string)
+	// List active verifiers
+	// (GET /v2/trust/verifiers)
+	GetV2TrustVerifiers(w http.ResponseWriter, r *http.Request)
 }
 
 // Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
@@ -162,6 +1618,150 @@ func (_ Unimplemented) GetPosts(w http.ResponseWriter, r *http.Request, params G
 // Create a new signed post
 // (POST /posts)
 func (_ Unimplemented) PostPosts(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List content items across modes
+// (GET /v2/content-items)
+func (_ Unimplemented) GetV2ContentItems(w http.ResponseWriter, r *http.Request, params GetV2ContentItemsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Create a content item in murmur, idea, or discussion mode
+// (POST /v2/content-items)
+func (_ Unimplemented) PostV2ContentItems(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Get a content item by id
+// (GET /v2/content-items/{contentItemId})
+func (_ Unimplemented) GetV2ContentItemsContentItemId(w http.ResponseWriter, r *http.Request, contentItemId string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Fork a public discussion into a derivative community branch
+// (POST /v2/discussions/{discussionId}/forks)
+func (_ Unimplemented) PostV2DiscussionsDiscussionIdForks(w http.ResponseWriter, r *http.Request, discussionId string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List discussion nodes for a discussion
+// (GET /v2/discussions/{discussionId}/nodes)
+func (_ Unimplemented) GetV2DiscussionsDiscussionIdNodes(w http.ResponseWriter, r *http.Request, discussionId string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Create a discussion node
+// (POST /v2/discussions/{discussionId}/nodes)
+func (_ Unimplemented) PostV2DiscussionsDiscussionIdNodes(w http.ResponseWriter, r *http.Request, discussionId string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Get current authenticated identity and capability snapshot
+// (GET /v2/me)
+func (_ Unimplemented) GetV2Me(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Create a moderation action on public content
+// (POST /v2/moderation-actions)
+func (_ Unimplemented) PostV2ModerationActions(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Project an idea into a discussion with ownership transfer acknowledgement
+// (POST /v2/projections)
+func (_ Unimplemented) PostV2Projections(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Create an AI transformation job
+// (POST /v2/transformation-jobs)
+func (_ Unimplemented) PostV2TransformationJobs(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Get a transformation job by id
+// (GET /v2/transformation-jobs/{jobId})
+func (_ Unimplemented) GetV2TransformationJobsJobId(w http.ResponseWriter, r *http.Request, jobId string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Publish the output of a completed transformation job
+// (POST /v2/transformation-jobs/{jobId}/publish)
+func (_ Unimplemented) PostV2TransformationJobsJobIdPublish(w http.ResponseWriter, r *http.Request, jobId string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List trusted issuers
+// (GET /v2/trust/issuers)
+func (_ Unimplemented) GetV2TrustIssuers(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Register or update a trusted issuer
+// (POST /v2/trust/issuers)
+func (_ Unimplemented) PostV2TrustIssuers(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Get current trust profile
+// (GET /v2/trust/me)
+func (_ Unimplemented) GetV2TrustMe(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List wallet presentation requests
+// (GET /v2/trust/presentation-requests)
+func (_ Unimplemented) GetV2TrustPresentationRequests(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Create a wallet presentation request
+// (POST /v2/trust/presentation-requests)
+func (_ Unimplemented) PostV2TrustPresentationRequests(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Get a wallet presentation request
+// (GET /v2/trust/presentation-requests/{requestId})
+func (_ Unimplemented) GetV2TrustPresentationRequestsRequestId(w http.ResponseWriter, r *http.Request, requestId string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Complete a wallet presentation request
+// (POST /v2/trust/presentation-requests/{requestId}/complete)
+func (_ Unimplemented) PostV2TrustPresentationRequestsRequestIdComplete(w http.ResponseWriter, r *http.Request, requestId string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Submit a verification case for L2-L3 review
+// (POST /v2/trust/verification-cases)
+func (_ Unimplemented) PostV2TrustVerificationCases(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Get a verification case
+// (GET /v2/trust/verification-cases/{caseId})
+func (_ Unimplemented) GetV2TrustVerificationCasesCaseId(w http.ResponseWriter, r *http.Request, caseId string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List verification cases visible to the current verifier
+// (GET /v2/trust/verifier/cases)
+func (_ Unimplemented) GetV2TrustVerifierCases(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Submit a verifier decision
+// (POST /v2/trust/verifier/cases/{caseId}/decision)
+func (_ Unimplemented) PostV2TrustVerifierCasesCaseIdDecision(w http.ResponseWriter, r *http.Request, caseId string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List active verifiers
+// (GET /v2/trust/verifiers)
+func (_ Unimplemented) GetV2TrustVerifiers(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -284,6 +1884,497 @@ func (siw *ServerInterfaceWrapper) PostPosts(w http.ResponseWriter, r *http.Requ
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.PostPosts(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetV2ContentItems operation middleware
+func (siw *ServerInterfaceWrapper) GetV2ContentItems(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetV2ContentItemsParams
+
+	// ------------- Optional query parameter "mode" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "mode", r.URL.Query(), &params.Mode, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "mode", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "visibility" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "visibility", r.URL.Query(), &params.Visibility, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "visibility", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "authorDid" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "authorDid", r.URL.Query(), &params.AuthorDid, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "authorDid", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "offset" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "offset", r.URL.Query(), &params.Offset, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "offset", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetV2ContentItems(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PostV2ContentItems operation middleware
+func (siw *ServerInterfaceWrapper) PostV2ContentItems(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PostV2ContentItems(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetV2ContentItemsContentItemId operation middleware
+func (siw *ServerInterfaceWrapper) GetV2ContentItemsContentItemId(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "contentItemId" -------------
+	var contentItemId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "contentItemId", chi.URLParam(r, "contentItemId"), &contentItemId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "contentItemId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetV2ContentItemsContentItemId(w, r, contentItemId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PostV2DiscussionsDiscussionIdForks operation middleware
+func (siw *ServerInterfaceWrapper) PostV2DiscussionsDiscussionIdForks(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "discussionId" -------------
+	var discussionId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "discussionId", chi.URLParam(r, "discussionId"), &discussionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "discussionId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PostV2DiscussionsDiscussionIdForks(w, r, discussionId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetV2DiscussionsDiscussionIdNodes operation middleware
+func (siw *ServerInterfaceWrapper) GetV2DiscussionsDiscussionIdNodes(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "discussionId" -------------
+	var discussionId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "discussionId", chi.URLParam(r, "discussionId"), &discussionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "discussionId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetV2DiscussionsDiscussionIdNodes(w, r, discussionId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PostV2DiscussionsDiscussionIdNodes operation middleware
+func (siw *ServerInterfaceWrapper) PostV2DiscussionsDiscussionIdNodes(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "discussionId" -------------
+	var discussionId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "discussionId", chi.URLParam(r, "discussionId"), &discussionId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "discussionId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PostV2DiscussionsDiscussionIdNodes(w, r, discussionId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetV2Me operation middleware
+func (siw *ServerInterfaceWrapper) GetV2Me(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetV2Me(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PostV2ModerationActions operation middleware
+func (siw *ServerInterfaceWrapper) PostV2ModerationActions(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PostV2ModerationActions(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PostV2Projections operation middleware
+func (siw *ServerInterfaceWrapper) PostV2Projections(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PostV2Projections(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PostV2TransformationJobs operation middleware
+func (siw *ServerInterfaceWrapper) PostV2TransformationJobs(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PostV2TransformationJobs(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetV2TransformationJobsJobId operation middleware
+func (siw *ServerInterfaceWrapper) GetV2TransformationJobsJobId(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "jobId" -------------
+	var jobId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "jobId", chi.URLParam(r, "jobId"), &jobId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "jobId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetV2TransformationJobsJobId(w, r, jobId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PostV2TransformationJobsJobIdPublish operation middleware
+func (siw *ServerInterfaceWrapper) PostV2TransformationJobsJobIdPublish(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "jobId" -------------
+	var jobId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "jobId", chi.URLParam(r, "jobId"), &jobId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "jobId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PostV2TransformationJobsJobIdPublish(w, r, jobId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetV2TrustIssuers operation middleware
+func (siw *ServerInterfaceWrapper) GetV2TrustIssuers(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetV2TrustIssuers(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PostV2TrustIssuers operation middleware
+func (siw *ServerInterfaceWrapper) PostV2TrustIssuers(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PostV2TrustIssuers(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetV2TrustMe operation middleware
+func (siw *ServerInterfaceWrapper) GetV2TrustMe(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetV2TrustMe(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetV2TrustPresentationRequests operation middleware
+func (siw *ServerInterfaceWrapper) GetV2TrustPresentationRequests(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetV2TrustPresentationRequests(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PostV2TrustPresentationRequests operation middleware
+func (siw *ServerInterfaceWrapper) PostV2TrustPresentationRequests(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PostV2TrustPresentationRequests(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetV2TrustPresentationRequestsRequestId operation middleware
+func (siw *ServerInterfaceWrapper) GetV2TrustPresentationRequestsRequestId(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "requestId" -------------
+	var requestId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "requestId", chi.URLParam(r, "requestId"), &requestId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "requestId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetV2TrustPresentationRequestsRequestId(w, r, requestId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PostV2TrustPresentationRequestsRequestIdComplete operation middleware
+func (siw *ServerInterfaceWrapper) PostV2TrustPresentationRequestsRequestIdComplete(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "requestId" -------------
+	var requestId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "requestId", chi.URLParam(r, "requestId"), &requestId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "requestId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PostV2TrustPresentationRequestsRequestIdComplete(w, r, requestId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PostV2TrustVerificationCases operation middleware
+func (siw *ServerInterfaceWrapper) PostV2TrustVerificationCases(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PostV2TrustVerificationCases(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetV2TrustVerificationCasesCaseId operation middleware
+func (siw *ServerInterfaceWrapper) GetV2TrustVerificationCasesCaseId(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "caseId" -------------
+	var caseId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "caseId", chi.URLParam(r, "caseId"), &caseId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "caseId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetV2TrustVerificationCasesCaseId(w, r, caseId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetV2TrustVerifierCases operation middleware
+func (siw *ServerInterfaceWrapper) GetV2TrustVerifierCases(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetV2TrustVerifierCases(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PostV2TrustVerifierCasesCaseIdDecision operation middleware
+func (siw *ServerInterfaceWrapper) PostV2TrustVerifierCasesCaseIdDecision(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "caseId" -------------
+	var caseId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "caseId", chi.URLParam(r, "caseId"), &caseId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "caseId", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PostV2TrustVerifierCasesCaseIdDecision(w, r, caseId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetV2TrustVerifiers operation middleware
+func (siw *ServerInterfaceWrapper) GetV2TrustVerifiers(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetV2TrustVerifiers(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -426,6 +2517,78 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/posts", wrapper.PostPosts)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v2/content-items", wrapper.GetV2ContentItems)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v2/content-items", wrapper.PostV2ContentItems)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v2/content-items/{contentItemId}", wrapper.GetV2ContentItemsContentItemId)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v2/discussions/{discussionId}/forks", wrapper.PostV2DiscussionsDiscussionIdForks)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v2/discussions/{discussionId}/nodes", wrapper.GetV2DiscussionsDiscussionIdNodes)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v2/discussions/{discussionId}/nodes", wrapper.PostV2DiscussionsDiscussionIdNodes)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v2/me", wrapper.GetV2Me)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v2/moderation-actions", wrapper.PostV2ModerationActions)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v2/projections", wrapper.PostV2Projections)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v2/transformation-jobs", wrapper.PostV2TransformationJobs)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v2/transformation-jobs/{jobId}", wrapper.GetV2TransformationJobsJobId)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v2/transformation-jobs/{jobId}/publish", wrapper.PostV2TransformationJobsJobIdPublish)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v2/trust/issuers", wrapper.GetV2TrustIssuers)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v2/trust/issuers", wrapper.PostV2TrustIssuers)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v2/trust/me", wrapper.GetV2TrustMe)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v2/trust/presentation-requests", wrapper.GetV2TrustPresentationRequests)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v2/trust/presentation-requests", wrapper.PostV2TrustPresentationRequests)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v2/trust/presentation-requests/{requestId}", wrapper.GetV2TrustPresentationRequestsRequestId)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v2/trust/presentation-requests/{requestId}/complete", wrapper.PostV2TrustPresentationRequestsRequestIdComplete)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v2/trust/verification-cases", wrapper.PostV2TrustVerificationCases)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v2/trust/verification-cases/{caseId}", wrapper.GetV2TrustVerificationCasesCaseId)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v2/trust/verifier/cases", wrapper.GetV2TrustVerifierCases)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/v2/trust/verifier/cases/{caseId}/decision", wrapper.PostV2TrustVerifierCasesCaseIdDecision)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/v2/trust/verifiers", wrapper.GetV2TrustVerifiers)
 	})
 
 	return r

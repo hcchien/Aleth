@@ -108,7 +108,7 @@ export function AuthButton({
                                     <div className="w-10 h-10 rounded-full bg-[#ea580c]/20 text-[#ea580c] flex items-center justify-center text-xl">🔑</div>
                                     <div>
                                         <h3 className="text-white font-medium flex items-center gap-2">
-                                            Passkey 驗證
+                                            Passkey 註冊 / 登入
                                             <span className="text-[10px] bg-[#ea580c]/20 text-[#ea580c] px-1.5 py-0.5 rounded">L1</span>
                                         </h3>
                                         <p className="text-xs text-neutral-400 mt-1">WebAuthn Ed25519，可簽署發文</p>

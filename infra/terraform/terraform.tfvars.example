@@ -1,0 +1,33 @@
+project_id  = "my-gcp-project"
+region      = "asia-east1"
+environment = "staging"
+name_prefix = "aleth"
+
+# Terraform deploys Cloud Run from images. Build and push these first.
+api_image = "asia-east1-docker.pkg.dev/my-gcp-project/aleth-staging-containers/leith-api:latest"
+web_image = "asia-east1-docker.pkg.dev/my-gcp-project/aleth-staging-containers/leith-web:latest"
+
+# Optional custom domain + HTTPS load balancer.
+enable_load_balancer = false
+domain_name          = "aleth.example.com"
+
+allow_unauthenticated = true
+
+db_name              = "aleth"
+db_user              = "aleth_app"
+db_tier              = "db-custom-1-3840"
+db_version           = "POSTGRES_16"
+db_availability_type = "ZONAL"
+db_disk_size_gb      = 20
+deletion_protection  = true
+
+api_min_instances = 0
+api_max_instances = 10
+web_min_instances = 0
+web_max_instances = 10
+
+# Future production passkey settings. These are included in Cloud Run env now,
+# but the API still needs to be updated to read them.
+webauthn_rp_id      = "aleth.example.com"
+webauthn_rp_origins = "https://aleth.example.com"
+

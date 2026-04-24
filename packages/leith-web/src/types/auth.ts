@@ -13,4 +13,6 @@ export interface User {
   joinedAt: number;
   verified?: boolean;
   level: 0 | 1 | 2 | 3 | 4;
+  authMethod?: 'oauth' | 'passkey';
+  oauthToken?: string;
 }

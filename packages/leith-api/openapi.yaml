@@ -126,6 +126,472 @@ paths:
                 type: array
                 items:
                   $ref: '#/components/schemas/Post'
+  /v2/me:
+    get:
+      summary: Get current authenticated identity and capability snapshot
+      tags:
+        - Identity
+      responses:
+        '200':
+          description: Current session identity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeResponse'
+  /v2/content-items:
+    get:
+      summary: List content items across modes
+      tags:
+        - ContentV2
+      parameters:
+        - name: mode
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [murmur, idea, discussion]
+        - name: visibility
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [private, unlisted, public]
+        - name: authorDid
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: A list of content items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ContentItem'
+    post:
+      summary: Create a content item in murmur, idea, or discussion mode
+      tags:
+        - ContentV2
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateContentItemRequest'
+      responses:
+        '201':
+          description: Content item created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContentItem'
+  /v2/content-items/{contentItemId}:
+    get:
+      summary: Get a content item by id
+      tags:
+        - ContentV2
+      parameters:
+        - name: contentItemId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Content item
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContentItem'
+        '404':
+          description: Content item not found
+  /v2/discussions/{discussionId}/nodes:
+    get:
+      summary: List discussion nodes for a discussion
+      tags:
+        - Discussion
+      parameters:
+        - name: discussionId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Discussion nodes
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [discussionId, nodes]
+                properties:
+                  discussionId:
+                    type: string
+                  nodes:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DiscussionNode'
+    post:
+      summary: Create a discussion node
+      tags:
+        - Discussion
+      parameters:
+        - name: discussionId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDiscussionNodeRequest'
+      responses:
+        '201':
+          description: Discussion node created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DiscussionNode'
+  /v2/projections:
+    post:
+      summary: Project an idea into a discussion with ownership transfer acknowledgement
+      tags:
+        - Projection
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProjectionRequest'
+      responses:
+        '201':
+          description: Projection created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Projection'
+  /v2/transformation-jobs:
+    post:
+      summary: Create an AI transformation job
+      tags:
+        - Transformation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTransformationJobRequest'
+      responses:
+        '201':
+          description: Transformation job created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransformationJob'
+  /v2/transformation-jobs/{jobId}:
+    get:
+      summary: Get a transformation job by id
+      tags:
+        - Transformation
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Transformation job
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransformationJob'
+        '404':
+          description: Job not found
+  /v2/transformation-jobs/{jobId}/publish:
+    post:
+      summary: Publish the output of a completed transformation job
+      tags:
+        - Transformation
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '201':
+          description: Published content item
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContentItem'
+  /v2/discussions/{discussionId}/forks:
+    post:
+      summary: Fork a public discussion into a derivative community branch
+      tags:
+        - Governance
+      parameters:
+        - name: discussionId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDiscussionForkRequest'
+      responses:
+        '201':
+          description: Discussion fork created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DiscussionFork'
+  /v2/moderation-actions:
+    post:
+      summary: Create a moderation action on public content
+      tags:
+        - Governance
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateModerationActionRequest'
+      responses:
+        '201':
+          description: Moderation action created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModerationAction'
+  /v2/trust/me:
+    get:
+      summary: Get current trust profile
+      tags:
+        - Trust
+      responses:
+        '200':
+          description: Current trust profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TrustProfile'
+  /v2/trust/verification-cases:
+    post:
+      summary: Submit a verification case for L2-L3 review
+      tags:
+        - Trust
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateVerificationCaseRequest'
+      responses:
+        '201':
+          description: Verification case created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerificationCase'
+  /v2/trust/verification-cases/{caseId}:
+    get:
+      summary: Get a verification case
+      tags:
+        - Trust
+      parameters:
+        - name: caseId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Verification case
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerificationCase'
+        '404':
+          description: Case not found
+  /v2/trust/verifier/cases:
+    get:
+      summary: List verification cases visible to the current verifier
+      tags:
+        - Trust
+      responses:
+        '200':
+          description: Verification cases
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/VerificationCase'
+  /v2/trust/verifier/cases/{caseId}/decision:
+    post:
+      summary: Submit a verifier decision
+      tags:
+        - Trust
+      parameters:
+        - name: caseId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateVerifierDecisionRequest'
+      responses:
+        '201':
+          description: Verifier decision created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VerifierDecision'
+  /v2/trust/verifiers:
+    get:
+      summary: List active verifiers
+      tags:
+        - Trust
+      responses:
+        '200':
+          description: Verifiers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Verifier'
+  /v2/trust/issuers:
+    get:
+      summary: List trusted issuers
+      tags:
+        - Trust
+      responses:
+        '200':
+          description: Trusted issuers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TrustedIssuer'
+    post:
+      summary: Register or update a trusted issuer
+      tags:
+        - Trust
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTrustedIssuerRequest'
+      responses:
+        '201':
+          description: Trusted issuer created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TrustedIssuer'
+  /v2/trust/presentation-requests:
+    get:
+      summary: List wallet presentation requests
+      tags:
+        - Trust
+      responses:
+        '200':
+          description: Wallet presentation requests
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WalletPresentationRequest'
+    post:
+      summary: Create a wallet presentation request
+      tags:
+        - Trust
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWalletPresentationRequest'
+      responses:
+        '201':
+          description: Wallet presentation request created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WalletPresentationRequest'
+  /v2/trust/presentation-requests/{requestId}:
+    get:
+      summary: Get a wallet presentation request
+      tags:
+        - Trust
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Wallet presentation request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WalletPresentationRequest'
+        '404':
+          description: Wallet presentation request not found
+  /v2/trust/presentation-requests/{requestId}/complete:
+    post:
+      summary: Complete a wallet presentation request
+      tags:
+        - Trust
+      parameters:
+        - name: requestId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompleteWalletPresentationRequest'
+      responses:
+        '201':
+          description: Wallet presentation verification result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WalletPresentationVerification'
 
 components:
   schemas:
@@ -169,6 +635,890 @@ components:
         trustTier:
           type: integer
           description: "Trust level 1-4"
+    CapabilitySnapshot:
+      type: object
+      required:
+        - canCreateMurmur
+        - canCreateIdea
+        - canCreateDiscussion
+        - canReplyToDiscussion
+        - canForkDiscussion
+        - canFlagContent
+        - canSlashContent
+        - canModerate
+        - canRequestVerification
+        - canReviewVerificationCases
+      properties:
+        canCreateMurmur:
+          type: boolean
+        canCreateIdea:
+          type: boolean
+        canCreateDiscussion:
+          type: boolean
+        canReplyToDiscussion:
+          type: boolean
+        canForkDiscussion:
+          type: boolean
+        canFlagContent:
+          type: boolean
+        canSlashContent:
+          type: boolean
+        canModerate:
+          type: boolean
+        canRequestVerification:
+          type: boolean
+        canReviewVerificationCases:
+          type: boolean
+    Identity:
+      type: object
+      required:
+        - did
+        - displayName
+        - trustTier
+      properties:
+        did:
+          type: string
+        displayName:
+          type: string
+        trustTier:
+          type: integer
+        authMethod:
+          type: string
+    MeResponse:
+      type: object
+      required:
+        - identity
+        - capabilities
+      properties:
+        identity:
+          $ref: '#/components/schemas/Identity'
+        capabilities:
+          $ref: '#/components/schemas/CapabilitySnapshot'
+    ContentItem:
+      type: object
+      required:
+        - id
+        - authorDid
+        - mode
+        - body
+        - status
+        - visibility
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+        authorDid:
+          type: string
+        title:
+          type: string
+        body:
+          type: string
+        mode:
+          type: string
+          enum: [murmur, idea, discussion]
+        status:
+          type: string
+          enum: [draft, active, archived]
+        visibility:
+          type: string
+          enum: [private, unlisted, public]
+        trustTier:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        publishedAt:
+          type: string
+          format: date-time
+        participationPolicy:
+          type: string
+          enum: [read_only, comment, debate]
+        discussionShape:
+          type: string
+          enum: [thread, stance_map, debate_cards]
+        sourceContentIds:
+          type: array
+          items:
+            type: string
+    CreateContentItemRequest:
+      type: object
+      required:
+        - mode
+        - body
+      properties:
+        title:
+          type: string
+        body:
+          type: string
+        mode:
+          type: string
+          enum: [murmur, idea, discussion]
+        visibility:
+          type: string
+          enum: [private, unlisted, public]
+        participationPolicy:
+          type: string
+          enum: [read_only, comment, debate]
+        discussionShape:
+          type: string
+          enum: [thread, stance_map, debate_cards]
+        sourceContentIds:
+          type: array
+          items:
+            type: string
+    DiscussionNode:
+      type: object
+      required:
+        - id
+        - discussionId
+        - authorDid
+        - nodeType
+        - stance
+        - body
+        - createdAt
+      properties:
+        id:
+          type: string
+        discussionId:
+          type: string
+        parentNodeId:
+          type: string
+        authorDid:
+          type: string
+        nodeType:
+          type: string
+          enum: [claim, question, evidence, rebuttal, summary]
+        stance:
+          type: string
+          enum: [support, oppose, clarify, neutral]
+        body:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+    ContentRelation:
+      type: object
+      required:
+        - id
+        - fromContentId
+        - toContentId
+        - relationType
+        - createdAt
+      properties:
+        id:
+          type: string
+        fromContentId:
+          type: string
+        toContentId:
+          type: string
+        relationType:
+          type: string
+          enum: [projected_from, expanded_from, forked_from]
+        createdAt:
+          type: string
+          format: date-time
+    Projection:
+      type: object
+      required:
+        - id
+        - sourceIdeaId
+        - targetDiscussionId
+        - projectedExcerpt
+        - participationPolicy
+        - ownershipTransferAcknowledged
+        - createdByDid
+        - createdAt
+      properties:
+        id:
+          type: string
+        sourceIdeaId:
+          type: string
+        targetDiscussionId:
+          type: string
+        projectedExcerpt:
+          type: string
+        participationPolicy:
+          type: string
+          enum: [read_only, comment, debate]
+        ownershipTransferAcknowledged:
+          type: boolean
+        createdByDid:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+    CreateProjectionRequest:
+      type: object
+      required:
+        - sourceIdeaId
+        - projectedExcerpt
+        - participationPolicy
+        - ownershipTransferAcknowledged
+      properties:
+        sourceIdeaId:
+          type: string
+        projectedExcerpt:
+          type: string
+        participationPolicy:
+          type: string
+          enum: [read_only, comment, debate]
+        ownershipTransferAcknowledged:
+          type: boolean
+        discussionShape:
+          type: string
+          enum: [thread, stance_map, debate_cards]
+    TransformationJob:
+      type: object
+      required:
+        - id
+        - requestedByDid
+        - sourceContentIds
+        - targetMode
+        - providerType
+        - promptProfile
+        - status
+        - createdAt
+      properties:
+        id:
+          type: string
+        requestedByDid:
+          type: string
+        sourceContentIds:
+          type: array
+          items:
+            type: string
+        targetMode:
+          type: string
+          enum: [murmur, idea, discussion]
+        providerType:
+          type: string
+          enum: [local_llm, byok, system_llm]
+        promptProfile:
+          type: string
+        status:
+          type: string
+          enum: [queued, running, completed, failed, discarded, published]
+        outputTitle:
+          type: string
+        outputBody:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+        publishedContentId:
+          type: string
+    CreateTransformationJobRequest:
+      type: object
+      required:
+        - sourceContentIds
+        - targetMode
+        - providerType
+      properties:
+        sourceContentIds:
+          type: array
+          items:
+            type: string
+        targetMode:
+          type: string
+          enum: [murmur, idea, discussion]
+        providerType:
+          type: string
+          enum: [local_llm, byok, system_llm]
+        promptProfile:
+          type: string
+    DiscussionFork:
+      type: object
+      required:
+        - id
+        - sourceDiscussionId
+        - forkDiscussionId
+        - createdByDid
+        - reason
+        - createdAt
+      properties:
+        id:
+          type: string
+        sourceDiscussionId:
+          type: string
+        forkDiscussionId:
+          type: string
+        createdByDid:
+          type: string
+        reason:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+    CreateDiscussionForkRequest:
+      type: object
+      required:
+        - reason
+      properties:
+        reason:
+          type: string
+    ModerationAction:
+      type: object
+      required:
+        - id
+        - targetContentId
+        - actionType
+        - reason
+        - initiatedByDid
+        - requiredTier
+        - status
+        - createdAt
+      properties:
+        id:
+          type: string
+        targetContentId:
+          type: string
+        actionType:
+          type: string
+          enum: [flag, hide, lock, slash]
+        reason:
+          type: string
+        initiatedByDid:
+          type: string
+        requiredTier:
+          type: integer
+        status:
+          type: string
+          enum: [open, approved]
+        createdAt:
+          type: string
+          format: date-time
+    CreateModerationActionRequest:
+      type: object
+      required:
+        - targetContentId
+        - actionType
+        - reason
+      properties:
+        targetContentId:
+          type: string
+        actionType:
+          type: string
+          enum: [flag, hide, lock, slash]
+        reason:
+          type: string
+    Credential:
+      type: object
+      required:
+        - id
+        - subjectDid
+        - issuerDid
+        - credentialType
+        - claimsJson
+        - status
+        - issuanceSource
+        - issuedAt
+      properties:
+        id:
+          type: string
+        subjectDid:
+          type: string
+        issuerDid:
+          type: string
+        externalIssuerDid:
+          type: string
+        credentialType:
+          type: string
+        claimsJson:
+          type: string
+        proof:
+          type: string
+        status:
+          type: string
+          enum: [active, expired, revoked, rejected]
+        issuanceSource:
+          type: string
+          enum: [internal_verifier_issued, external_issuer_verified]
+        issuedAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+        revokedAt:
+          type: string
+          format: date-time
+    TrustAssessment:
+      type: object
+      required:
+        - id
+        - subjectDid
+        - tier
+        - score
+        - source
+        - issuedByDid
+        - effectiveAt
+      properties:
+        id:
+          type: string
+        subjectDid:
+          type: string
+        tier:
+          type: integer
+        score:
+          type: number
+        source:
+          type: string
+          enum: [system, verifier, credential, social_graph, moderation]
+        evidenceRefs:
+          type: array
+          items:
+            type: string
+        issuedByDid:
+          type: string
+        effectiveAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+        revokedAt:
+          type: string
+          format: date-time
+    Verifier:
+      type: object
+      required:
+        - id
+        - verifierDid
+        - verifierType
+        - scope
+        - authorityLevel
+        - status
+        - appointedByDid
+        - createdAt
+      properties:
+        id:
+          type: string
+        verifierDid:
+          type: string
+        verifierType:
+          type: string
+        scope:
+          type: string
+        authorityLevel:
+          type: integer
+        status:
+          type: string
+          enum: [active, suspended, revoked, expired]
+        appointedByDid:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+        revokedAt:
+          type: string
+          format: date-time
+    TrustedIssuer:
+      type: object
+      required:
+        - id
+        - issuerDid
+        - issuerName
+        - status
+        - scopes
+        - credentialTypes
+        - maxTrustTierIssued
+        - appointedByDid
+        - createdAt
+      properties:
+        id:
+          type: string
+        issuerDid:
+          type: string
+        issuerName:
+          type: string
+        status:
+          type: string
+          enum: [active, suspended, revoked, expired]
+        scopes:
+          type: array
+          items:
+            type: string
+        credentialTypes:
+          type: array
+          items:
+            type: string
+        maxTrustTierIssued:
+          type: integer
+        appointedByDid:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+        revokedAt:
+          type: string
+          format: date-time
+    CreateTrustedIssuerRequest:
+      type: object
+      required:
+        - issuerDid
+        - issuerName
+        - scopes
+        - credentialTypes
+        - maxTrustTierIssued
+      properties:
+        issuerDid:
+          type: string
+        issuerName:
+          type: string
+        scopes:
+          type: array
+          items:
+            type: string
+        credentialTypes:
+          type: array
+          items:
+            type: string
+        maxTrustTierIssued:
+          type: integer
+        status:
+          type: string
+          enum: [active, suspended, revoked, expired]
+        expiresAt:
+          type: string
+          format: date-time
+    WalletPresentationVerification:
+      type: object
+      required:
+        - id
+        - requestId
+        - subjectDid
+        - issuerDid
+        - credentialType
+        - presentationFormat
+        - claimsJson
+        - proof
+        - audience
+        - nonce
+        - status
+        - createdAt
+      properties:
+        id:
+          type: string
+        requestId:
+          type: string
+        subjectDid:
+          type: string
+        issuerDid:
+          type: string
+        credentialType:
+          type: string
+        presentationFormat:
+          type: string
+        claimsJson:
+          type: string
+        proof:
+          type: string
+        audience:
+          type: string
+        nonce:
+          type: string
+        status:
+          type: string
+          enum: [verified, rejected]
+        trustedIssuerDid:
+          type: string
+        notes:
+          type: string
+        issuedCredentialId:
+          type: string
+        issuedAssessmentId:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        verifiedAt:
+          type: string
+          format: date-time
+    WalletPresentationRequest:
+      type: object
+      required:
+        - id
+        - subjectDid
+        - verifierDid
+        - requestedTier
+        - credentialType
+        - allowedIssuerDids
+        - challenge
+        - requestUri
+        - qrPayload
+        - status
+        - createdAt
+      properties:
+        id:
+          type: string
+        subjectDid:
+          type: string
+        verifierDid:
+          type: string
+        requestedTier:
+          type: integer
+        credentialType:
+          type: string
+        purpose:
+          type: string
+        allowedIssuerDids:
+          type: array
+          items:
+            type: string
+        challenge:
+          type: string
+        requestUri:
+          type: string
+        qrPayload:
+          type: string
+        status:
+          type: string
+          enum: [pending, completed, verified, rejected, expired]
+        createdAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+        verification:
+          $ref: '#/components/schemas/WalletPresentationVerification'
+    CreateWalletPresentationRequest:
+      type: object
+      required:
+        - requestedTier
+        - credentialType
+      properties:
+        requestedTier:
+          type: integer
+        credentialType:
+          type: string
+        purpose:
+          type: string
+        allowedIssuerDids:
+          type: array
+          items:
+            type: string
+        expiresInMinutes:
+          type: integer
+    CompleteWalletPresentationRequest:
+      type: object
+      required:
+        - issuerDid
+        - credentialType
+        - presentationFormat
+        - claimsJson
+        - proof
+        - audience
+        - nonce
+      properties:
+        issuerDid:
+          type: string
+        credentialType:
+          type: string
+        presentationFormat:
+          type: string
+        claimsJson:
+          type: string
+        proof:
+          type: string
+        audience:
+          type: string
+        nonce:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+        revokedAt:
+          type: string
+          format: date-time
+    VerificationCase:
+      type: object
+      required:
+        - id
+        - subjectDid
+        - requestedTier
+        - credentialType
+        - evidenceJson
+        - status
+        - createdAt
+      properties:
+        id:
+          type: string
+        subjectDid:
+          type: string
+        requestedTier:
+          type: integer
+        credentialType:
+          type: string
+        evidenceJson:
+          type: string
+        status:
+          type: string
+          enum: [submitted, assigned, approved, rejected, appealed, expired]
+        assignedVerifierDid:
+          type: string
+        decision:
+          type: string
+        decisionReason:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        decidedAt:
+          type: string
+          format: date-time
+    CreateVerificationCaseRequest:
+      type: object
+      required:
+        - requestedTier
+        - credentialType
+        - evidenceJson
+      properties:
+        requestedTier:
+          type: integer
+        credentialType:
+          type: string
+        evidenceJson:
+          type: string
+    VerifierDecision:
+      type: object
+      required:
+        - id
+        - caseId
+        - verifierDid
+        - decision
+        - reason
+        - credentialIssuanceSource
+        - createdAt
+      properties:
+        id:
+          type: string
+        caseId:
+          type: string
+        verifierDid:
+          type: string
+        decision:
+          type: string
+          enum: [approve, reject, request_more_evidence]
+        reason:
+          type: string
+        credentialIssuanceSource:
+          type: string
+          enum: [internal_verifier_issued, external_issuer_verified]
+        externalIssuerDid:
+          type: string
+        issuedCredentialId:
+          type: string
+        issuedAssessmentId:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+    CreateVerifierDecisionRequest:
+      type: object
+      required:
+        - decision
+        - reason
+        - credentialIssuanceSource
+      properties:
+        decision:
+          type: string
+          enum: [approve, reject, request_more_evidence]
+        reason:
+          type: string
+        credentialIssuanceSource:
+          type: string
+          enum: [internal_verifier_issued, external_issuer_verified]
+        externalIssuerDid:
+          type: string
+    TrustAuditLog:
+      type: object
+      required:
+        - id
+        - actorDid
+        - actionType
+        - createdAt
+      properties:
+        id:
+          type: string
+        actorDid:
+          type: string
+        actionType:
+          type: string
+        targetDid:
+          type: string
+        targetResourceId:
+          type: string
+        metadataJson:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+    TrustProfile:
+      type: object
+      required:
+        - identity
+        - capabilities
+        - credentials
+        - trustAssessments
+        - verificationCases
+        - auditLogs
+      properties:
+        identity:
+          $ref: '#/components/schemas/Identity'
+        capabilities:
+          $ref: '#/components/schemas/CapabilitySnapshot'
+        verifier:
+          $ref: '#/components/schemas/Verifier'
+        credentials:
+          type: array
+          items:
+            $ref: '#/components/schemas/Credential'
+        trustAssessments:
+          type: array
+          items:
+            $ref: '#/components/schemas/TrustAssessment'
+        verificationCases:
+          type: array
+          items:
+            $ref: '#/components/schemas/VerificationCase'
+        auditLogs:
+          type: array
+          items:
+            $ref: '#/components/schemas/TrustAuditLog'
+    CreateDiscussionNodeRequest:
+      type: object
+      required:
+        - nodeType
+        - stance
+        - body
+      properties:
+        parentNodeId:
+          type: string
+        nodeType:
+          type: string
+          enum: [claim, question, evidence, rebuttal, summary]
+        stance:
+          type: string
+          enum: [support, oppose, clarify, neutral]
+        body:
+          type: string
     CreatePostRequest:
       type: object
       required:
